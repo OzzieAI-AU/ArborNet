@@ -5,6 +5,9 @@
 
 **ArborNet** is a high-performance, fluent machine learning library for .NET. It is engineered for researchers who want the flexibility of PyTorch combined with the type-safety and performance of the .NET ecosystem. By bridging the gap between front-line holonomic mathematics and industrial-grade software engineering, ArborNet makes building complex neural architectures as natural as writing prose.
 
+> ### 💡 The ArborNet Advantage
+> The predecessor to Microsoft CNTK, but with a much smaller footprint, OzzieAI's ArborNet is the answer to Machine Learning where performance and resource efficiency are paramount.
+
 ![ArborNet Visual Overview](Images/img1.png)
 
 ---

@@ -71,4 +71,4 @@ $$ \Omega = dA + A \wedge A = 0 $$
 ---
 
 > "Code is poetry; tensors are the ink."
-> **The ArborNet Research Collective**
+> **The **[www.ozzieai.com](https://www.ozzieai.com/)** Research Collective**
