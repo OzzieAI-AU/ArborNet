@@ -1,8 +1,0 @@
-﻿  Compiling CUDA source file kernel.cu...
-  
-  C:\Users\Jingl\Desktop\ArbourNET\project_src\CudaBackend>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin\nvcc.exe" -gencode=arch=compute_80,code=\"sm_80,compute_80\" --use-local-env -ccbin "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\bin\HostX64\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\include"  -G   --keep-dir x64\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -allow-unsupported-compiler -g  -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH -D_DEBUG -DCUDABACKEND_EXPORTS -D_WINDOWS -D_USRDLL -D_WINDLL -D_UNICODE -DUNICODE -Xcompiler "/EHsc /W3 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/Fdx64\Debug\vc145.pdb" -o C:\Users\Jingl\Desktop\ArbourNET\project_src\CudaBackend\x64\Debug\kernel.cu.obj "C:\Users\Jingl\Desktop\ArbourNET\project_src\CudaBackend\kernel.cu" 
-  kernel.cu
-  tmpxft_00002fb0_00000000-7_kernel.cudafe1.cpp
-  pch.cpp
-     Creating library C:\Users\Jingl\Desktop\ArbourNET\project_src\x64\Debug\cuda_backend.lib and object C:\Users\Jingl\Desktop\ArbourNET\project_src\x64\Debug\cuda_backend.exp
-  CudaBackend.vcxproj -> C:\Users\Jingl\Desktop\ArbourNET\project_src\x64\Debug\cuda_backend.dll
