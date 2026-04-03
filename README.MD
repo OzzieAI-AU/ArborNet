@@ -80,16 +80,16 @@ OzzieAI.ArborNet is built on a modular backend system. Whether you are running o
 
 Grab the latest build from NuGet:
 
-'```bash
+```bash
 dotnet add package OzzieAI.ArborNet.Core
 dotnet add package OzzieAI.ArborNet.Backends.Cuda
-```'
+```
 
 ---
 
 ## 🤝 Contributing
 
-We love wit, grit, and great code. If you’re interested in holonomic research or just want to make .NET the premier language for AI, join us. Check out our '`CONTRIBUTING.md`' to get started.
+We love wit, grit, and great code. If you’re interested in holonomic research or just want to make .NET the premier language for AI, join us. Check out our `CONTRIBUTING.md`' to get started.
 
 ---
 
