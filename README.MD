@@ -89,9 +89,9 @@ dotnet add package OzzieAI.ArborNet.Backends.Cuda
 
 ## 🤝 Contributing
 
-We love wit, grit, and great code. If you’re interested in holonomic research or just want to make .NET the premier language for AI, join us. Check out our `CONTRIBUTING.md`' to get started.
+We love wit, grit, and great code. If you’re interested in holonomic research or just want to make .NET the premier language for AI, join us. Check out our ** [`CONTRIBUTING.md`](https://github.com/OzzieAI-AU/ArborNet?tab=contributing-ov-file)** to get started.
 
 ---
 
 > "Simplifying the complex, one tensor at a time."
-> **Built with ❤️ by the ArborNet Research Collective.**
+> **Built with ❤️ by the **[www.ozzieai.com](https://www.ozzieai.com/)** Research Collective.**
