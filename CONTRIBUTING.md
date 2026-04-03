@@ -3,7 +3,7 @@
 
 First off, thank you for considering contributing to **ArborNet**! It is people like you who make the .NET machine learning ecosystem thrive. Whether you are fixing a bug in the `'` `CudaBackend` `'` or implementing a new paper in holonomic math, we value your expertise.
 
-![ArborNet Community](images/img1.png)
+![ArborNet Community](Images/img5.png)
 
 ---
 
@@ -19,7 +19,7 @@ ArborNet isn't just another tensor library. We are specifically looking for cont
 * **Kernel Fusion:** Optimized `'` `C++` `'` and `'` `CUDA` `'` kernels for custom activation functions.
 * **Fluent API Design:** Ensuring that complex math feels like simple logic.
 
-![Research Visualization](images/img2.png)
+![Research Visualization](Images/img6.png)
 
 ---
 
@@ -60,7 +60,7 @@ If you are contributing to the `'` `Autograd` `'` engine, please ensure you defi
 
 $$ \Omega = dA + A \wedge A = 0 $$
 
-![Backend Performance](images/img3.png)
+![Backend Performance](Images/img7.png)
 
 ---
 
