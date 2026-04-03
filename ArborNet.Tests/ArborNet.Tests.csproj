@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsPackable>false</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+		<PackageReference Include="xunit" Version="2.9.2" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+		<PackageReference Include="FluentAssertions" Version="7.0.0" />
+		<PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+		<ProjectReference Include="..\ArborNet.Fluent\ArborNet.Fluent.csproj" />
+		<ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
+		<ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
+		<ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
+		<ProjectReference Include="..\ArborNet.Optimizers\ArborNet.Optimizers.csproj" />
+		<ProjectReference Include="..\ArborNet.Trainers\ArborNet.Trainers.csproj" />
+	</ItemGroup>
+
+</Project>

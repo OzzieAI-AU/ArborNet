@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Docs</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Docs</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Trainers for the ArborNet deep learning framework</Description>
+    <PackageTags>deep-learning neural-networks csharp arbornet</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
+    <ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
+    <ProjectReference Include="..\ArborNet.Optimizers\ArborNet.Optimizers.csproj" />
+    <ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
+  </ItemGroup>
+
+</Project>

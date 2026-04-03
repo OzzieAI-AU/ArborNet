@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Optimizers</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Optimizers</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Optimizers for the ArborNet deep learning framework</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+</Project>

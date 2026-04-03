@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Data</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Data</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Data handling utilities for the ArborNet deep learning framework.</Description>
+    <Copyright>© 2023 ArborNet Team</Copyright>
+    <PackageTags>deep-learning data machine-learning csharp</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Tokenizers.cs" />
+    <Compile Include="Transforms.cs" />
+    <Compile Include="Datasets\CIFAR10\Download.cs" />
+    <Compile Include="Datasets\CIFAR100\Download.cs" />
+    <Compile Include="Datasets\ImageNet\Download.cs" />
+    <Compile Include="Datasets\LibriSpeech\Download.cs" />
+    <Compile Include="Datasets\MNIST\Download.cs" />
+    <Compile Include="Datasets\SQuAD\Download.cs" />
+    <Compile Include="Datasets\WikiText103\Download.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.47.3" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+</Project>

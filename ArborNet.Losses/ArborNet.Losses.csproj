@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Losses</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Losses</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Loss functions for the ArborNet deep learning framework.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="BaseLoss.cs" />
+    <Compile Include="BinaryCrossEntropy.cs" />
+    <Compile Include="CrossEntropy.cs" />
+    <Compile Include="Hinge.cs" />
+    <Compile Include="Huber.cs" />
+    <Compile Include="KLDiv.cs" />
+    <Compile Include="Losses.cs" />
+    <Compile Include="MSE.cs" />
+    <Compile Include="NLL.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Fluent\ArborNet.Fluent.csproj" />
+  </ItemGroup>
+
+</Project>

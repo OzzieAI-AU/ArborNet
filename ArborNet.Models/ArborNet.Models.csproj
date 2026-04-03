@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Models</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Models</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Models for the ArborNet deep learning framework.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
+    <ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<Compile Include="**\*.cs" />
+	</ItemGroup>
+	
+</Project>

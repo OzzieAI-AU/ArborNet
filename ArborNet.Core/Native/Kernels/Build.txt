@@ -1,0 +1,9 @@
+
+
+
+nvcc -shared -o cuda_backend.dll cuda_backend.cu
+
+
+-shared tells it to make a DLL instead of an .exe.
+
+-o cuda_backend.dll sets the output name to exactly what your C# DllImport is looking for.

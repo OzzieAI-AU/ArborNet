@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Layers</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Layers</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Layer implementations for the ArborNet deep learning framework.</Description>
+    <PackageTags>deep-learning neural-networks layers</PackageTags>
+    <RepositoryUrl>https://github.com/arbornet/arbornet</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AdvancedLayers.cs" />
+    <Compile Include="Attention.cs" />
+    <Compile Include="BaseLayer.cs" />
+    <Compile Include="BatchNorm.cs" />
+    <Compile Include="ActivationLayer.cs" />
+    <Compile Include="LayerNorm.cs" />
+    <Compile Include="Conv1D.cs" />
+    <Compile Include="Conv2D.cs" />
+    <Compile Include="Conv3D.cs" />
+    <Compile Include="Dropout.cs" />
+    <Compile Include="Embedding.cs" />
+    <Compile Include="GRU.cs" />
+    <Compile Include="Linear.cs" />
+    <Compile Include="LSTM.cs" />
+    <Compile Include="MultiHeadAttention.cs" />
+    <Compile Include="PositionalEncoding.cs" />
+    <Compile Include="TransformerBlock.cs" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<Folder Include="Normalization\" />
+		<Compile Include="Normalization\*.cs" />
+	</ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+  </ItemGroup>
+
+</Project>

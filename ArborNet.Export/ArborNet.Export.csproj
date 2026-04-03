@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArborNet.Export</RootNamespace>
+    <LangVersion>11</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>ArborNet.Export</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>ArborNet Team</Authors>
+    <Description>Export utilities for the ArborNet deep learning framework</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="OnnxExporter.cs" />
+    <Compile Include="TorchScript.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Data\ArborNet.Data.csproj" />
+    <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
+    <ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
+    <ProjectReference Include="..\ArborNet.Trainers\ArborNet.Trainers.csproj" />
+  </ItemGroup>
+
+</Project>

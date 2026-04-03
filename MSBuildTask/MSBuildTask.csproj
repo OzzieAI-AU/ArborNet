@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Build.Framework" Version="18.4.0" />
+		<PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.4.0" />
+	</ItemGroup>
+
+	<UsingTask TaskName="MSBuildTask.CudaCompileTask"
+			   AssemblyFile="$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\MSBuildTask.dll"
+			   Runtime="NET" />
+
+	<ItemGroup>
+		<CudaSourceFiles Include="ArborNet.Core/Native/Kernels/*.cu" />
+	</ItemGroup>
+
+	<Target Name="CompileCudaKernels" BeforeTargets="CoreCompile" Inputs="@(CudaSourceFiles)" Outputs="@(CudaSourceFiles->'%(RelativeDir)%(Filename).ptx');@(CudaSourceFiles->'%(RelativeDir)%(Filename).g.cs')">
+
+		<Message Text="Starting CUDA Compilation for ArborNet.Core..." Importance="high" />
+
+		<CudaCompileTask CudaFiles="@(CudaSourceFiles)">
+			<Output TaskParameter="GeneratedPtxFiles" ItemName="NewPtxFiles" />
+			<Output TaskParameter="GeneratedCsFiles" ItemName="NewCsFiles" />
+		</CudaCompileTask>
+
+		<ItemGroup>
+			<Compile Include="@(NewCsFiles)" />
+			<Content Include="@(NewPtxFiles)">
+				<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			</Content>
+		</ItemGroup>
+
+		<Message Text="CUDA Compilation Complete. Added @(NewCsFiles->Count()) wrapper(s)." Importance="high" />
+	</Target>
+
+</Project>
