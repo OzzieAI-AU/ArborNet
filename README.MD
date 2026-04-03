@@ -24,7 +24,7 @@ Most .NET ML libraries feel like rigid wrappers. **ArborNet** feels like an exte
 
 OzzieAI.ArborNet prioritizes a '`Fluent API`'. No more verbose boilerplate; just clean, expressive code that chains together effortlessly.
 
-'```csharp
+```csharp
 // Define a tensor on the GPU
 var x = Tensor.Randn(new Shape(3, 256, 256), Device.Cuda)
               .RequiresGrad(true);
@@ -40,7 +40,7 @@ var output = x.Multiply(2.5f)
 output.Backward();
 
 Console.WriteLine($"Gradient at x: {x.Grad}");
-```'
+```
 
 ---
 
