@@ -5,6 +5,7 @@ using ArborNet.Core.Interfaces;
 using ArborNet.Core.Tensors;
 using ArborNet.Activations;
 using ArborNet.Core.Functional;
+using ArborNet.Core.Layers;
 
 namespace ArborNet.Layers
 {
@@ -114,31 +115,37 @@ namespace ArborNet.Layers
         /// </remarks>
         public override ITensor Forward(ITensor input)
         {
-            ValidateInput(input, 2);
+            ValidateInput(input);
 
             int batch = input.Shape.Rank == 3 ? input.Shape[0] : 1;
             int seqLen = input.Shape.Rank == 3 ? input.Shape[1] : input.Shape[0];
 
-            ITensor h = _hidden.Reshape(batch, _hiddenSize);
-            ITensor c = _cell.Reshape(batch, _hiddenSize);
+            // Dynamically allocate or expand the batch dimension
+            ITensor h = (_hidden.Shape.Rank == 2 && _hidden.Shape[0] == batch)
+                ? _hidden
+                : Tensor.Zeros(new TensorShape(batch, _hiddenSize), _device);
+
+            ITensor c = (_cell.Shape.Rank == 2 && _cell.Shape[0] == batch)
+                ? _cell
+                : Tensor.Zeros(new TensorShape(batch, _hiddenSize), _device);
 
             for (int t = 0; t < seqLen; t++)
             {
                 ITensor x = (input.Shape.Rank == 3)
-                    ? input.Slice(new (int, int, int)[] { (t, t + 1, 1) }).Reshape(batch, _inputSize)
-                    : input.Reshape(batch, _inputSize);
+                    ? input.Slice(new (int, int, int)[] { (0, batch, 1), (t, t + 1, 1), (0, _inputSize, 1) }).Reshape(batch, _inputSize)
+                    : input.Slice(new (int, int, int)[] { (t, t + 1, 1), (0, _inputSize, 1) }).Reshape(batch, _inputSize);
 
-                var ft = new Sigmoid().Forward(x.MatMul(_Wf).Add(h.MatMul(_Uf)).Add(_bf));
-                var it = new Sigmoid().Forward(x.MatMul(_Wi).Add(h.MatMul(_Ui)).Add(_bi));
-                var ot = new Sigmoid().Forward(x.MatMul(_Wo).Add(h.MatMul(_Uo)).Add(_bo));
-                var ct = new Tanh().Forward(x.MatMul(_Wc).Add(ft.Multiply(h.MatMul(_Uc)).Add(_bc)));
+                var ft = new Sigmoid().Forward(x.MatMul(_Wf).Add(h.MatMul(_Uf)).Add(_bf.ReshapeWithBroadcast(new TensorShape(batch, _hiddenSize), 0)));
+                var i_t = new Sigmoid().Forward(x.MatMul(_Wi).Add(h.MatMul(_Ui)).Add(_bi.ReshapeWithBroadcast(new TensorShape(batch, _hiddenSize), 0)));
+                var ot = new Sigmoid().Forward(x.MatMul(_Wo).Add(h.MatMul(_Uo)).Add(_bo.ReshapeWithBroadcast(new TensorShape(batch, _hiddenSize), 0)));
+                var ct = new Tanh().Forward(x.MatMul(_Wc).Add(h.MatMul(_Uc)).Add(_bc.ReshapeWithBroadcast(new TensorShape(batch, _hiddenSize), 0)));
 
-                c = ft.Multiply(c).Add(it.Multiply(ct));
+                c = ft.Multiply(c).Add(i_t.Multiply(ct));
                 h = ot.Multiply(new Tanh().Forward(c));
             }
 
-            _hidden = h.Reshape(_hiddenSize);
-            _cell = c.Reshape(_hiddenSize);
+            _hidden = h;
+            _cell = c;
 
             return _hidden;
         }

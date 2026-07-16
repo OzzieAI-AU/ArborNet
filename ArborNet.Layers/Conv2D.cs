@@ -1,21 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Activations;
-using ArborNet.Core;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Functional;
-
-namespace ArborNet.Layers
+﻿namespace ArborNet.Layers
 {
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Activations;
+    using ArborNet.Core;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Functional;
+    using System.Threading.Tasks;
+    using ArborNet.Core.Layers;
+
     /// <summary>
-    /// Production-grade 2D convolutional layer with full autograd, device awareness,
-    /// numerical stability, and complete ITensor contract compliance.
-    /// 
-    /// Supports configurable kernel size, stride, padding, and bias.
-    /// Uses explicit loop implementation on CPU for full correctness and autograd support.
-    /// CUDA path can be added via native kernels in the future.
+    /// Production-grade 2D convolutional layer with thread-safe atomic autograd support.
     /// </summary>
     public class Conv2D : BaseLayer
     {
@@ -29,21 +26,8 @@ namespace ArborNet.Layers
         private readonly ITensor _weight;
         private readonly ITensor? _bias;
 
-        public Conv2D(
-            int inChannels,
-            int outChannels,
-            int kernelSize,
-            int stride = 1,
-            int padding = 0,
-            bool useBias = true,
-            Device? device = null)
+        public Conv2D(int inChannels, int outChannels, int kernelSize, int stride = 1, int padding = 0, bool useBias = true, Device? device = null)
         {
-            if (inChannels <= 0) throw new ArgumentOutOfRangeException(nameof(inChannels));
-            if (outChannels <= 0) throw new ArgumentOutOfRangeException(nameof(outChannels));
-            if (kernelSize <= 0) throw new ArgumentOutOfRangeException(nameof(kernelSize));
-            if (stride <= 0) throw new ArgumentOutOfRangeException(nameof(stride));
-            if (padding < 0) throw new ArgumentOutOfRangeException(nameof(padding));
-
             _inChannels = inChannels;
             _outChannels = outChannels;
             _kernelSize = kernelSize;
@@ -52,9 +36,7 @@ namespace ArborNet.Layers
             _useBias = useBias;
 
             var dev = device ?? Device.CPU;
-
-            _weight = Initializers.XavierUniform(
-                new TensorShape(outChannels, inChannels, kernelSize, kernelSize), dev);
+            _weight = Initializers.XavierUniform(new TensorShape(outChannels, inChannels, kernelSize, kernelSize), dev);
             _weight.RequiresGrad = true;
 
             if (_useBias)
@@ -66,11 +48,9 @@ namespace ArborNet.Layers
 
         public override ITensor Forward(ITensor input)
         {
-            if (input == null) throw new ArgumentNullException(nameof(input));
-            if (input.Shape.Rank != 4)
-                throw new ArgumentException("Conv2D expects 4D input [B, C, H, W].");
+            ValidateInput(input, expectedRank: 4);
             if (input.Shape[1] != _inChannels)
-                throw new ArgumentException($"Input channels mismatch. Expected {_inChannels}, got {input.Shape[1]}.");
+                throw new ArgumentException($"Channel mismatch: Expected {_inChannels}, got {input.Shape[1]}.");
 
             int batch = input.Shape[0];
             int inH = input.Shape[2];
@@ -80,11 +60,9 @@ namespace ArborNet.Layers
             int outW = (inW + 2 * _padding - _kernelSize) / _stride + 1;
 
             if (outH <= 0 || outW <= 0)
-                throw new InvalidOperationException("Output dimensions are non-positive. Check kernel/stride/padding.");
+                throw new InvalidOperationException("Invalid spatial configuration resulting in negative dimensions.");
 
             var outputShape = new TensorShape(batch, _outChannels, outH, outW);
-            var output = Tensor.Zeros(outputShape, input.Device);
-
             var inData = input.ToArray();
             var wData = _weight.ToArray();
             var outData = new float[outputShape.TotalElements];
@@ -95,38 +73,122 @@ namespace ArborNet.Layers
             int outStrideC = outH * outW;
             int outStrideH = outW;
 
-            for (int b = 0; b < batch; b++)
-                for (int oc = 0; oc < _outChannels; oc++)
-                    for (int oh = 0; oh < outH; oh++)
-                        for (int ow = 0; ow < outW; ow++)
+            Parallel.For(0, batch * _outChannels, idx =>
+            {
+                int b = idx / _outChannels;
+                int oc = idx % _outChannels;
+
+                for (int oh = 0; oh < outH; oh++)
+                {
+                    for (int ow = 0; ow < outW; ow++)
+                    {
+                        float sum = 0f;
+                        int outIdx = b * _outChannels * outStrideC + oc * outStrideC + oh * outStrideH + ow;
+
+                        for (int ic = 0; ic < _inChannels; ic++)
                         {
-                            float sum = 0f;
-                            int outIdx = b * _outChannels * outStrideC + oc * outStrideC + oh * outStrideH + ow;
+                            int inChannelOffset = b * _inChannels * inStrideC + ic * inStrideC;
+                            int wChannelOffset = oc * _inChannels * wStrideC + ic * wStrideC;
 
-                            for (int ic = 0; ic < _inChannels; ic++)
-                                for (int kh = 0; kh < _kernelSize; kh++)
-                                    for (int kw = 0; kw < _kernelSize; kw++)
+                            for (int kh = 0; kh < _kernelSize; kh++)
+                            {
+                                int ih = oh * _stride - _padding + kh;
+                                if (ih < 0 || ih >= inH) continue;
+
+                                int inRowOffset = inChannelOffset + ih * inStrideH;
+                                int wRowOffset = wChannelOffset + kh * _kernelSize;
+
+                                for (int kw = 0; kw < _kernelSize; kw++)
+                                {
+                                    int iw = ow * _stride - _padding + kw;
+                                    if (iw >= 0 && iw < inW)
                                     {
-                                        int ih = oh * _stride - _padding + kh;
-                                        int iw = ow * _stride - _padding + kw;
-
-                                        if (ih >= 0 && ih < inH && iw >= 0 && iw < inW)
-                                        {
-                                            int inIdx = b * _inChannels * inStrideC + ic * inStrideC + ih * inStrideH + iw;
-                                            int wIdx = oc * _inChannels * wStrideC + ic * wStrideC + kh * _kernelSize + kw;
-                                            sum += inData[inIdx] * wData[wIdx];
-                                        }
+                                        sum += inData[inRowOffset + iw] * wData[wRowOffset + kw];
                                     }
-                            outData[outIdx] = sum;
+                                }
+                            }
                         }
+                        outData[outIdx] = sum;
+                    }
+                }
+            });
 
             var result = Tensor.FromArray(outData, outputShape, input.Device);
 
             if (input.RequiresGrad || _weight.RequiresGrad)
             {
+                var capturedInput = input;
+                var capturedWeight = _weight;
+
                 result.GradFn = gradOutput =>
                 {
-                    var gradInput = Tensor.Zeros(input.Shape, input.Device);
+                    var goData = gradOutput.ToArray();
+                    var gradInputData = new float[capturedInput.Shape.TotalElements];
+                    var gradWeightData = new float[capturedWeight.Shape.TotalElements];
+
+                    Parallel.For(0, batch, b =>
+                    {
+                        for (int oc = 0; oc < _outChannels; oc++)
+                        {
+                            for (int oh = 0; oh < outH; oh++)
+                            {
+                                for (int ow = 0; ow < outW; ow++)
+                                {
+                                    int outIdx = b * _outChannels * outStrideC + oc * outStrideC + oh * outStrideH + ow;
+                                    float goVal = goData[outIdx];
+
+                                    for (int ic = 0; ic < _inChannels; ic++)
+                                    {
+                                        for (int kh = 0; kh < _kernelSize; kh++)
+                                        {
+                                            int ih = oh * _stride - _padding + kh;
+                                            if (ih < 0 || ih >= inH) continue;
+
+                                            for (int kw = 0; kw < _kernelSize; kw++)
+                                            {
+                                                int iw = ow * _stride - _padding + kw;
+                                                if (iw >= 0 && iw < inW)
+                                                {
+                                                    int inIdx = b * _inChannels * inStrideC + ic * inStrideC + ih * inStrideH + iw;
+                                                    int wIdx = oc * _inChannels * wStrideC + ic * wStrideC + kh * _kernelSize + kw;
+
+                                                    lock (gradWeightData)
+                                                    {
+                                                        gradWeightData[wIdx] += inData[inIdx] * goVal;
+                                                    }
+                                                    lock (gradInputData)
+                                                    {
+                                                        gradInputData[inIdx] += wData[wIdx] * goVal;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    var gradInput = Tensor.FromArray(gradInputData, capturedInput.Shape, input.Device);
+                    var gradWeight = Tensor.FromArray(gradWeightData, capturedWeight.Shape, input.Device);
+
+                    if (capturedWeight.RequiresGrad)
+                    {
+                        capturedWeight.AccumulateGrad(gradWeight);
+                    }
+
+                    if (_useBias && _bias != null && _bias.RequiresGrad)
+                    {
+                        var gradBias = gradOutput.Sum(3, false).Sum(2, false).Sum(0, false);
+                        _bias.AccumulateGrad(gradBias);
+                    }
+
+                    if (capturedInput.RequiresGrad)
+                    {
+                        capturedInput.AccumulateGrad(gradInput);
+                        capturedInput.GradFn?.Invoke(gradInput);
+                    }
+
                     return gradInput;
                 };
             }
@@ -143,11 +205,7 @@ namespace ArborNet.Layers
         public override IEnumerable<ITensor> Parameters()
         {
             yield return _weight;
-            if (_useBias && _bias != null)
-                yield return _bias;
+            if (_useBias && _bias != null) yield return _bias;
         }
-
-        public override string ToString() =>
-            $"Conv2D(in={_inChannels}, out={_outChannels}, k={_kernelSize}, stride={_stride}, pad={_padding}, bias={_useBias})";
     }
 }

@@ -7,6 +7,7 @@ using ArborNet.Core.Interfaces;
 using ArborNet.Core.Models;
 using ArborNet.Core.Tensors;
 using ArborNet.Layers;
+using ArborNet.Layers.Normalization;
 
 namespace ArborNet.Models
 {
@@ -181,12 +182,17 @@ namespace ArborNet.Models
         /// The decoder reconstructs the image from z. The KL divergence is analytically computed and
         /// attached to the output tensor's gradient function to ensure correct backpropagation.
         /// </remarks>
-        public override ITensor Forward(ITensor x)
+        public override ITensor Forward(ITensor input)
+        {
+            // Default compatibility
+            var (recon, _) = ForwardVAE(input);
+            return recon;
+        }
+
+        public (ITensor Reconstruction, ITensor KL_Loss) ForwardVAE(ITensor x)
         {
             if (x.Shape.Rank != 4)
                 throw new ArgumentException("VAE expects input of shape [B, C, H, W].");
-            if (x.Shape[1] != 3)
-                throw new ArgumentException("VAE currently only supports 3-channel images.");
 
             int batch = x.Shape[0];
             int h = x.Shape[2];
@@ -203,34 +209,37 @@ namespace ArborNet.Models
                 _fcDecode = new Linear(_latentDim, currentFlat, _device);
             }
 
-            // === Encoder ===
+            // Encoder
             var h1 = new ReLU().Forward(_encBn1.Forward(_encConv1.Forward(x)));
             var h2 = new ReLU().Forward(_encBn2.Forward(_encConv2.Forward(h1)));
             var h3 = new ReLU().Forward(_encBn3.Forward(_encConv3.Forward(h2)));
 
             var flat = h3.Reshape(batch, currentFlat);
-
             var mu = _fcMu.Forward(flat);
             var logVar = _fcLogVar.Forward(flat);
 
-            // Reparameterization
+            // Reparameterization Trick
             var std = logVar.Multiply(0.5f).Exp();
             var eps = Tensor.Randn(mu.Shape, _device);
             var z = mu.Add(eps.Multiply(std));
 
-            // === Decoder ===
+            // Decoder
             var decoded = _fcDecode.Forward(z);
             decoded = decoded.Reshape(batch, 256, h / 8, w / 8);
 
             decoded = new ReLU().Forward(_decBn1.Forward(_decConv1.Forward(decoded)));
             decoded = new ReLU().Forward(_decBn2.Forward(_decConv2.Forward(decoded)));
             decoded = new ReLU().Forward(_decBn3.Forward(_decConv3.Forward(decoded)));
-            decoded = new Sigmoid().Forward(_decConv4.Forward(decoded));
+            var reconstruction = new Sigmoid().Forward(_decConv4.Forward(decoded));
 
-            // Attach KL term correctly through GradFn
-            decoded.GradFn = _ => ComputeKL(mu, logVar);
+            // Analytical KL loss
+            var kl = logVar.Add(1.0f)
+                           .Subtract(mu.Multiply(mu))
+                           .Subtract(logVar.Exp())
+                           .Multiply(-0.5f)
+                           .Mean();
 
-            return decoded;
+            return (reconstruction, kl);
         }
 
         /// <summary>

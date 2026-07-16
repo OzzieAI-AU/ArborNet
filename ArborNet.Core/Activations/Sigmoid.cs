@@ -38,22 +38,31 @@ namespace ArborNet.Activations
         /// </remarks>
         public override ITensor Forward(ITensor input)
         {
+
             if (input == null) throw new ArgumentNullException(nameof(input));
             ValidateInput(input);
 
             var device = input.Device;
-            var one = Tensor.Ones(input.Shape, device);
-            var negInput = input.Multiply(-1.0f);
-            var expNeg = negInput.Exp();
-            var denom = one.Add(expNeg).Add(EPS);
-            var output = one.Divide(denom);
+            var zero = Tensor.Zeros(input.Shape, device);
+
+            // Stable sigmoid: 
+            // For x >= 0: 1 / (1 + exp(-x))
+            // For x < 0: exp(x) / (1 + exp(x))
+            var isPositive = input.GreaterThanOrEqual(zero);
+
+            var expNeg = input.Multiply(-1.0f).Exp();
+            var posPart = Tensor.Ones(input.Shape, device).Divide(Tensor.Ones(input.Shape, device).Add(expNeg).Add(EPS));
+
+            var expPos = input.Exp();
+            var negPart = expPos.Divide(Tensor.Ones(input.Shape, device).Add(expPos).Add(EPS));
+
+            var output = isPositive.Where(isPositive, posPart, negPart);
 
             if (input.RequiresGrad)
             {
                 output.GradFn = gradOutput =>
                 {
-                    var oneMinusOut = one.Subtract(output);
-                    var localGrad = output.Multiply(oneMinusOut);
+                    var localGrad = output.Multiply(Tensor.Ones(input.Shape, device).Subtract(output));
                     return localGrad.Multiply(gradOutput);
                 };
             }

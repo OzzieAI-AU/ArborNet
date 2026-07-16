@@ -4,6 +4,7 @@ using ArborNet.Core.Devices;
 using ArborNet.Core.Interfaces;
 using ArborNet.Core.Tensors;
 using ArborNet.Core.Functional;
+using ArborNet.Core.Layers;
 
 namespace ArborNet.Layers
 {
@@ -36,26 +37,26 @@ namespace ArborNet.Layers
 
                 output.GradFn = gradOutput =>
                 {
-                    ITensor gradInput = null;
-                    ITensor gradWeight = null;
-                    ITensor gradBias = null;
+                    ITensor? gradInput = null;
+                    ITensor? gradWeight = null;
+                    ITensor? gradBias = null;
 
                     if (capturedWeight.RequiresGrad)
                     {
                         gradWeight = capturedInput.Transpose(new[] { 1, 0 }).MatMul(gradOutput);
-                        AccumulateGrad(capturedWeight.Grad, gradWeight, g => capturedWeight.Grad = g);
+                        capturedWeight.AccumulateGrad(gradWeight);
                     }
 
                     if (capturedBias.RequiresGrad)
                     {
                         gradBias = gradOutput.Sum(0);
-                        AccumulateGrad(capturedBias.Grad, gradBias, g => capturedBias.Grad = g);
+                        capturedBias.AccumulateGrad(gradBias);
                     }
 
                     if (capturedInput.RequiresGrad)
                     {
                         gradInput = gradOutput.MatMul(capturedWeight.Transpose(new[] { 1, 0 }));
-                        AccumulateGrad(capturedInput.Grad, gradInput, g => capturedInput.Grad = g);
+                        capturedInput.AccumulateGrad(gradInput);
                     }
 
                     return gradInput ?? gradOutput;

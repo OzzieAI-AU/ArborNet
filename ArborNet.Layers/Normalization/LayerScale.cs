@@ -1,4 +1,5 @@
 ﻿using ArborNet.Core.Interfaces;
+using ArborNet.Core.Layers;
 using ArborNet.Core.Tensors;
 using System;
 using System.Collections.Generic;

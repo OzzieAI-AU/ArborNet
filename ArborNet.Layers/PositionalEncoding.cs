@@ -3,6 +3,7 @@ using ArborNet.Core.Devices;
 using ArborNet.Core.Interfaces;
 using ArborNet.Core.Tensors;
 using System.Collections.Generic;
+using ArborNet.Core.Layers;
 
 namespace ArborNet.Layers
 {

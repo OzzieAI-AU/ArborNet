@@ -1,68 +1,96 @@
-﻿using System.Collections.Generic;
+﻿using ArborNet.Core.Functional;
 using ArborNet.Core.Interfaces;
+using ArborNet.Core.Layers;
 using ArborNet.Core.Tensors;
-using ArborNet.Core.Functional;
+using System;
+using System.Collections.Generic;
 
 namespace ArborNet.Layers
 {
     /// <summary>
-    /// Implements an embedding layer that maps integer indices (token IDs) to dense vector representations.
+    /// Thread-safe categorical embedding table layer.
     /// </summary>
-    /// <remarks>
-    /// This layer maintains a learnable lookup table of shape <c>(numEmbeddings, embeddingDim)</c>.
-    /// It is a core component in NLP models, transformers, and sequence processing architectures.
-    /// </remarks>
     public class Embedding : BaseLayer
     {
-        /// <summary>
-        /// The learnable embedding weight matrix of shape <c>(NumEmbeddings, EmbeddingDim)</c>.
-        /// </summary>
-        private ITensor weights;
-
-        /// <summary>
-        /// Gets the number of embeddings (vocabulary size).
-        /// </summary>
+        private ITensor _weights;
         public int NumEmbeddings { get; }
-
-        /// <summary>
-        /// Gets the dimensionality of each embedding vector.
-        /// </summary>
         public int EmbeddingDim { get; }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Embedding"/> class.
-        /// </summary>
-        /// <param name="numEmbeddings">The size of the embedding dictionary (number of unique tokens the layer can embed).</param>
-        /// <param name="embeddingDim">The size of each embedding vector.</param>
         public Embedding(int numEmbeddings, int embeddingDim)
         {
             NumEmbeddings = numEmbeddings;
             EmbeddingDim = embeddingDim;
-            weights = Initializers.Normal(new TensorShape(numEmbeddings, embeddingDim));
+            _weights = Initializers.Normal(new TensorShape(numEmbeddings, embeddingDim));
+            _weights.RequiresGrad = true;
         }
 
-        /// <summary>
-        /// Performs the forward pass of the embedding layer.
-        /// </summary>
-        /// <param name="indices">The input tensor containing integer indices to retrieve embeddings for.</param>
-        /// <returns>A tensor containing the corresponding embedding vectors.</returns>
-        /// <remarks>
-        /// Current implementation is a temporary stub. It should be replaced with a proper gather/scatter
-        /// operation that selects rows from the <see cref="weights"/> matrix based on the provided indices.
-        /// </remarks>
         public override ITensor Forward(ITensor indices)
         {
-            // Simple gather - replace with proper implementation when Gather is added
-            return weights; // stub
+            if (indices == null) throw new ArgumentNullException(nameof(indices));
+
+            float[] idxData = indices.ToArray();
+            float[] wData = _weights.ToArray();
+            float[] outData = new float[idxData.Length * EmbeddingDim];
+
+            for (int i = 0; i < idxData.Length; i++)
+            {
+                int tokenIdx = (int)idxData[i];
+                if (tokenIdx < 0 || tokenIdx >= NumEmbeddings)
+                    throw new IndexOutOfRangeException($"Token index {tokenIdx} is out of bounds for vocab size {NumEmbeddings}.");
+
+                int wOffset = tokenIdx * EmbeddingDim;
+                int outOffset = i * EmbeddingDim;
+
+                for (int d = 0; d < EmbeddingDim; d++)
+                {
+                    outData[outOffset + d] = wData[wOffset + d];
+                }
+            }
+
+            var outputShapeList = new List<int>(indices.Shape.Dimensions) { EmbeddingDim };
+            var result = Tensor.FromArray(outData, new TensorShape(outputShapeList.ToArray()), indices.Device);
+
+            if (_weights.RequiresGrad)
+            {
+                var capturedIndices = indices;
+                var capturedWeights = _weights;
+
+                result.GradFn = gradOut =>
+                {
+                    float[] goData = gradOut.ToArray();
+                    float[] indicesArray = capturedIndices.ToArray();
+                    float[] gradWeightsData = new float[capturedWeights.Shape.TotalElements];
+
+                    for (int i = 0; i < indicesArray.Length; i++)
+                    {
+                        int tokenIdx = (int)indicesArray[i];
+                        if (tokenIdx >= 0 && tokenIdx < NumEmbeddings)
+                        {
+                            int wOffset = tokenIdx * EmbeddingDim;
+                            int outOffset = i * EmbeddingDim;
+
+                            for (int d = 0; d < EmbeddingDim; d++)
+                            {
+                                gradWeightsData[wOffset + d] += goData[outOffset + d];
+                            }
+                        }
+                    }
+
+                    var gradWeights = Tensor.FromArray(gradWeightsData, capturedWeights.Shape, gradOut.Device);
+
+                    // Thread-Safe Atomic gradient accumulation
+                    capturedWeights.AccumulateGrad(gradWeights);
+
+                    return Tensor.Zeros(capturedIndices.Shape, capturedIndices.Device);
+                };
+            }
+
+            return result;
         }
 
-        /// <summary>
-        /// Returns all trainable parameters of this layer.
-        /// </summary>
-        /// <returns>An enumerable containing the embedding weights tensor.</returns>
         public override IEnumerable<ITensor> Parameters()
         {
-            yield return weights;
+            yield return _weights;
         }
     }
 }

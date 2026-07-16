@@ -34,27 +34,27 @@ namespace ArborNet.Core.Tensors
     /// </remarks>
     public sealed class Tensor : ITensor
     {
-
-        // The underlying compute backend (CpuBackend or CudaBackend)
         internal readonly ITensor _backend;
 
-        /// <summary>
-        /// Internal constructor used by static factories to wrap the concrete backend.
-        /// </summary>
         internal Tensor(ITensor backend)
         {
             _backend = backend ?? throw new ArgumentNullException(nameof(backend));
         }
 
-        /// <summary>
-        /// Helper to safely unwrap a Tensor to its raw backend before passing it down to compute layers.
-        /// </summary>
-        public static ITensor Unwrap(ITensor t) => t is Tensor tensor ? tensor._backend : t;
+        // ====================================================================
+        // ITENSOR INTERFACE DELEGATION METHODS
+        // ====================================================================
+
+        public ITensor Gather(int axis, ITensor indices)
+            => new Tensor(_backend.Gather(axis, Unwrap(indices)));
+
+        public void AccumulateGrad(ITensor delta)
+            => _backend.AccumulateGrad(Unwrap(delta));
 
         // =================================================================================
-        // PROPERTIES
+        // PROPERTIES & CONTROLLERS
         // =================================================================================
-
+        public ITensor[] Inputs { get => _backend.Inputs; set => _backend.Inputs = value; }
         public TensorShape Shape => _backend.Shape;
         public Device Device => _backend.Device;
         public bool RequiresGrad { get => _backend.RequiresGrad; set => _backend.RequiresGrad = value; }
@@ -62,10 +62,22 @@ namespace ArborNet.Core.Tensors
         public Func<ITensor, ITensor>? GradFn { get => _backend.GradFn; set => _backend.GradFn = value; }
         public float[] Data => _backend.ToArray();
 
-        // =================================================================================
-        // STATIC FACTORIES
-        // =================================================================================
+        public static ITensor Unwrap(ITensor t) => t is Tensor tensor ? tensor._backend : t;
 
+
+        // High-Performance In-Place Operations
+        public void AddInPlace(ITensor other) => _backend.AddInPlace(Unwrap(other));
+        public void AddInPlace(float scalar) => _backend.AddInPlace(scalar);
+        public void SubtractInPlace(ITensor other) => _backend.SubtractInPlace(Unwrap(other));
+        public void SubtractInPlace(float scalar) => _backend.SubtractInPlace(scalar);
+        public void MultiplyInPlace(ITensor other) => _backend.MultiplyInPlace(Unwrap(other));
+        public void MultiplyInPlace(float scalar) => _backend.MultiplyInPlace(scalar);
+
+
+
+        // =================================================================================
+        // STATIC INITIALIZATION FACTORIES
+        // =================================================================================
         public static ITensor Zeros(TensorShape shape, Device? device = null)
         {
             if (shape == null) throw new ArgumentNullException(nameof(shape));
@@ -145,33 +157,29 @@ namespace ArborNet.Core.Tensors
             return new Tensor(backend);
         }
 
-        public static ITensor Rand(TensorShape shape, float min, float max, Device? device = null)
-        {
-            var t = Rand(shape, device);
-            return t.Multiply(max - min).Add(min);
-        }
+        // =================================================================================
+        // OVERLOADED ARITHMETIC OPERATORS
+        // =================================================================================
+        public static ITensor operator +(Tensor a, Tensor b) => a.Add(b);
+        public static ITensor operator +(Tensor a, float b) => a.Add(b);
+        public static ITensor operator +(float a, Tensor b) => b.Add(a);
 
-        //public static ITensor Concat(IEnumerable<ITensor> tensors, int axis = 0)
-        //{
-        //    var list = tensors.ToList();
-        //    if (list.Count == 0) throw new ArgumentException("Cannot concatenate empty list.");
-        //    return list[0].Concat(list.Skip(1), axis);
-        //}
+        public static ITensor operator -(Tensor a, Tensor b) => a.Subtract(b);
+        public static ITensor operator -(Tensor a, float b) => a.Subtract(b);
 
-        /// <summary>
-        /// Element-wise equality comparison with another tensor.
-        /// </summary>
-        public ITensor Equal(ITensor other) => new Tensor(_backend.Equal(Unwrap(other)));
+        public static ITensor operator *(Tensor a, Tensor b) => a.Multiply(b);
+        public static ITensor operator *(Tensor a, float b) => a.Multiply(b);
+        public static ITensor operator *(float a, Tensor b) => b.Multiply(a);
+
+        public static ITensor operator /(Tensor a, Tensor b) => a.Divide(b);
+        public static ITensor operator /(Tensor a, float b) => a.Divide(b);
+
+        public static ITensor operator -(Tensor a) => a.Negate();
 
         // =================================================================================
-        // INSTANCE METHODS (Bridged to Backend)
+        // CORE TENSOR INSTANCE METHODS
         // =================================================================================
-
-        public void SetData(float[] floats)
-        {
-            _backend.SetData(floats);
-        }
-
+        public void SetData(float[] floats) => _backend.SetData(floats);
         public float[] ToArray() => _backend.ToArray();
         public float ToScalar() => _backend.ToScalar();
         public ITensor Clone() => new Tensor(_backend.Clone());
@@ -180,13 +188,11 @@ namespace ArborNet.Core.Tensors
         public bool IsCuda() => _backend.IsCuda();
         public IEnumerable<ITensor> Parameters() => _backend.Parameters();
 
-        // Binary Operations
         public ITensor Add(ITensor other) => new Tensor(_backend.Add(Unwrap(other)));
         public ITensor Subtract(ITensor other) => new Tensor(_backend.Subtract(Unwrap(other)));
         public ITensor Multiply(ITensor other) => new Tensor(_backend.Multiply(Unwrap(other)));
         public ITensor Divide(ITensor other) => new Tensor(_backend.Divide(Unwrap(other)));
 
-        // Scalar Binary Operations
         public ITensor Add(float scalar) => new Tensor(_backend.Add(scalar));
         public ITensor Subtract(float scalar) => new Tensor(_backend.Subtract(scalar));
         public ITensor Multiply(float scalar) => new Tensor(_backend.Multiply(scalar));
@@ -196,7 +202,6 @@ namespace ArborNet.Core.Tensors
         public ITensor Multiply(double scalar) => new Tensor(_backend.Multiply(scalar));
         public ITensor Divide(double scalar) => new Tensor(_backend.Divide(scalar));
 
-        // Unary Operations
         public ITensor Negate() => new Tensor(_backend.Negate());
         public ITensor Exp() => new Tensor(_backend.Exp());
         public ITensor Log() => new Tensor(_backend.Log());
@@ -205,84 +210,49 @@ namespace ArborNet.Core.Tensors
         public ITensor Sin() => new Tensor(_backend.Sin());
         public ITensor Cos() => new Tensor(_backend.Cos());
 
-        // Powers
         public ITensor Pow(float exponent) => new Tensor(_backend.Pow(exponent));
         public ITensor Pow(ITensor exponent) => new Tensor(_backend.Pow(Unwrap(exponent)));
 
-        // Matrix Operations
         public ITensor MatMul(ITensor other) => new Tensor(_backend.MatMul(Unwrap(other)));
         public ITensor Transpose(int[] perm) => new Tensor(_backend.Transpose(perm));
 
-        // Shape & Memory Operations
         public ITensor Reshape(params int[] newShape) => new Tensor(_backend.Reshape(newShape));
         public ITensor Slice(params (int start, int end, int step)[] slices) => new Tensor(_backend.Slice(slices));
         public ITensor Concat(IEnumerable<ITensor> others, int axis = 0)
             => new Tensor(_backend.Concat(others.Select(Unwrap), axis));
 
-        // Broadcasting
         public ITensor BroadcastTo(TensorShape targetShape) => new Tensor(_backend.BroadcastTo(targetShape));
         public ITensor BroadcastAdd(ITensor other) => new Tensor(_backend.BroadcastAdd(Unwrap(other)));
         public ITensor ReshapeWithBroadcast(TensorShape target, int axis) => new Tensor(_backend.ReshapeWithBroadcast(target, axis));
 
-        // Reductions & Aggregations
-        public ITensor Sum(int? axis = null) => new Tensor(_backend.Sum(axis));
-        public ITensor Mean(int? axis = null) => new Tensor(_backend.Mean(axis));
-        public ITensor Mean(int[] axes) => new Tensor(_backend.Mean(axes));
-        public ITensor Max(int axis = -1) => new Tensor(_backend.Max(axis));
-        public ITensor Min(int axis = -1) => new Tensor(_backend.Min(axis));
+        public ITensor Sum(int? axis = null, bool keepDims = false) => new Tensor(_backend.Sum(axis, keepDims));
+        public ITensor Sum(int[] axes, bool keepDims = false) => new Tensor(_backend.Sum(axes, keepDims));
+        public ITensor Mean(int? axis = null, bool keepDims = false) => new Tensor(_backend.Mean(axis, keepDims));
+        public ITensor Mean(int[] axes, bool keepDims = false) => new Tensor(_backend.Mean(axes, keepDims));
+        public ITensor Max(int axis = -1, bool keepDims = false) => new Tensor(_backend.Max(axis, keepDims));
+        public ITensor Min(int axis = -1, bool keepDims = false) => new Tensor(_backend.Min(axis, keepDims));
 
-        // Specialized Indexes & Sums
         public ITensor ArgMin(int axis) => new Tensor(_backend.ArgMin(axis));
         public ITensor ArgMax(int axis) => new Tensor(_backend.ArgMax(axis));
         public ITensor CumSum(int axis) => new Tensor(_backend.CumSum(axis));
 
-        // Logic & Comparisons
         public ITensor GreaterThan(ITensor other) => new Tensor(_backend.GreaterThan(Unwrap(other)));
         public ITensor GreaterThanOrEqual(ITensor other) => new Tensor(_backend.GreaterThanOrEqual(Unwrap(other)));
         public ITensor LessEqual(ITensor other) => new Tensor(_backend.LessEqual(Unwrap(other)));
+        public ITensor Equal(ITensor other) => new Tensor(_backend.Equal(Unwrap(other)));
         public ITensor Where(ITensor condition, ITensor trueValue, ITensor falseValue)
             => new Tensor(_backend.Where(Unwrap(condition), Unwrap(trueValue), Unwrap(falseValue)));
         public ITensor Sign() => new Tensor(_backend.Sign());
 
-        // Activations
         public ITensor Tanh() => new Tensor(_backend.Tanh());
         public ITensor Relu() => new Tensor(_backend.Relu());
         public ITensor Sigmoid() => new Tensor(_backend.Sigmoid());
         public ITensor Softmax(int axis = -1) => new Tensor(_backend.Softmax(axis));
 
-        // Autograd
         public void Backward(ITensor? gradient = null) => _backend.Backward(gradient != null ? Unwrap(gradient) : null);
         public void ClearGrad() => _backend.ClearGrad();
 
-        /// <summary>
-        /// Performs element-wise logical NOT.
-        /// </summary>
-        public ITensor LogicalNot()
-        {
-            return new Tensor(_backend.LogicalNot());
-        }
-
-        /// <summary>
-        /// Clips all elements of the tensor to the range [v1, v2].
-        /// </summary>
-        public ITensor Clip(float v1, float v2)
-        {
-            if (v1 > v2) (v1, v2) = (v2, v1);
-            return new Tensor(_backend.Clip(v1, v2));
-        }
-
-        /// <summary>
-        /// Safely accumulates a gradient into this variable's .Grad property.
-        /// This fixes the previous bug where the local variable was reassigned but never written back.
-        /// </summary>
-        private void AccumulateGrad(ITensor? currentGrad, ITensor delta)
-        {
-            if (delta == null) return;
-
-            if (currentGrad == null)
-                Grad = delta.Clone();           // ← Must assign to property
-            else
-                Grad = currentGrad.Add(delta);  // ← Must assign to property
-        }
+        public ITensor LogicalNot() => new Tensor(_backend.LogicalNot());
+        public ITensor Clip(float v1, float v2) => new Tensor(_backend.Clip(v1, v2));
     }
 }

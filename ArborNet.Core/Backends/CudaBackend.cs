@@ -2,6 +2,7 @@
 using ArborNet.Core;
 using ArborNet.Core.Devices;
 using ArborNet.Core.Interfaces;
+using ArborNet.Core.Native;
 using ArborNet.Core.Native.PInvoke;
 using ArborNet.Core.Tensors;
 using System;
@@ -12,11 +13,6 @@ using static ArborNet.Core.Native.PInvoke.CUDA;
 
 namespace ArborNet.Core.Backends
 {
-    /// <summary>
-    /// Perfect, production-grade, fully-native CUDA backend for ITensor.
-    /// All operations use native GPU kernels with maximum efficiency and robustness.
-    /// Complete implementation with full autograd support.
-    /// </summary>
     public sealed class CudaBackend : ITensor, IDisposable
     {
         private IntPtr _devicePtr = IntPtr.Zero;
@@ -26,6 +22,15 @@ namespace ArborNet.Core.Backends
         private ITensor? _grad;
         private Func<ITensor, ITensor>? _gradFn;
         private bool _disposed;
+        private readonly object _lock = new();
+
+        private ITensor[] _inputs = Array.Empty<ITensor>();
+
+        public ITensor[] Inputs
+        {
+            get => _inputs;
+            set => _inputs = value ?? Array.Empty<ITensor>();
+        }
 
         public TensorShape Shape => _shape;
         public Device Device => _device;
@@ -41,19 +46,19 @@ namespace ArborNet.Core.Backends
             _requiresGrad = requiresGrad;
 
             ulong bytes = (ulong)_shape.TotalElements * sizeof(float);
-            CudaMalloc(out _devicePtr, bytes);
+            _devicePtr = CudaMemoryPool.Instance.Allocate(bytes);
             CudaMemset(_devicePtr, 0, bytes);
             GC.AddMemoryPressure((long)bytes);
         }
 
-        private CudaBackend(float[] hostData, TensorShape shape, bool requiresGrad = false, Device? device = null)
+        public CudaBackend(float[] hostData, TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape?.Clone() ?? throw new ArgumentNullException(nameof(shape));
             _device = device ?? Device.CUDA;
             _requiresGrad = requiresGrad;
 
             ulong bytes = (ulong)_shape.TotalElements * sizeof(float);
-            CudaMalloc(out _devicePtr, bytes);
+            _devicePtr = CudaMemoryPool.Instance.Allocate(bytes);
             CopyHostToDevice(hostData, _devicePtr, _shape.TotalElements);
             GC.AddMemoryPressure((long)bytes);
         }
@@ -65,6 +70,156 @@ namespace ArborNet.Core.Backends
             _requiresGrad = requiresGrad;
             _device = device;
             GC.AddMemoryPressure((long)_shape.TotalElements * sizeof(float));
+        }
+
+        // Thread-Safe GPU Gradient Accumulation
+        public void AccumulateGrad(ITensor delta)
+        {
+            if (delta == null) return;
+
+            ITensor reduced = delta;
+            if (!delta.Shape.Equals(_shape))
+            {
+                var cpuDelta = delta.To(Device.CPU);
+                var cpuReduced = CpuBackend.ReduceGradientToTarget(cpuDelta, _shape);
+                reduced = cpuReduced.To(_device);
+            }
+
+            lock (_lock)
+            {
+                if (_grad == null)
+                {
+                    _grad = reduced.Clone();
+                }
+                else
+                {
+                    _grad.AddInPlace(reduced);
+                }
+            }
+        }
+
+        // On-Device Vector Math Kernels
+        public void AddInPlace(ITensor other)
+        {
+            if (other is not CudaBackend o) throw new InvalidOperationException("Operand must reside on CUDA.");
+            lock (_lock)
+            {
+                NativeAdd(_devicePtr, o._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public void AddInPlace(float scalar)
+        {
+            using var scalarTensor = (CudaBackend)FromScalar(scalar, _device);
+            lock (_lock)
+            {
+                NativeAdd(_devicePtr, scalarTensor._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public void SubtractInPlace(ITensor other)
+        {
+            if (other is not CudaBackend o) throw new InvalidOperationException("Operand must reside on CUDA.");
+            lock (_lock)
+            {
+                NativeSubtract(_devicePtr, o._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public void SubtractInPlace(float scalar)
+        {
+            using var scalarTensor = (CudaBackend)FromScalar(scalar, _device);
+            lock (_lock)
+            {
+                NativeSubtract(_devicePtr, scalarTensor._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public void MultiplyInPlace(ITensor other)
+        {
+            if (other is not CudaBackend o) throw new InvalidOperationException("Operand must reside on CUDA.");
+            lock (_lock)
+            {
+                NativeMultiply(_devicePtr, o._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public void MultiplyInPlace(float scalar)
+        {
+            using var scalarTensor = (CudaBackend)FromScalar(scalar, _device);
+            lock (_lock)
+            {
+                NativeMultiply(_devicePtr, scalarTensor._devicePtr, _devicePtr, _shape.TotalElements);
+            }
+        }
+
+        public ITensor Gather(int axis, ITensor indices)
+        {
+            var cpuSelf = this.To(Device.CPU);
+            var cpuIndices = indices.To(Device.CPU);
+            var cpuResult = cpuSelf.Gather(axis, cpuIndices);
+            return cpuResult.To(_device);
+        }
+
+        public ITensor GreaterThan(ITensor other) => ElementwiseBinary(other, CUDA.GreaterThan);
+        public ITensor LessThan(ITensor other) => ElementwiseBinary(other, CUDA.LessThan);
+        public ITensor GreaterThanOrEqual(ITensor other) => LessThan(other).LogicalNot();
+        public ITensor LessEqual(ITensor other) => GreaterThan(other).LogicalNot();
+
+        public ITensor Where(ITensor condition, ITensor trueValue, ITensor falseValue)
+        {
+            if (condition is not CudaBackend c || trueValue is not CudaBackend tv || falseValue is not CudaBackend fv)
+                throw new InvalidOperationException("All tensors must be on CUDA for Where.");
+
+            var result = new CudaBackend(_shape, false, _device);
+            CUDA.Where(c._devicePtr, tv._devicePtr, fv._devicePtr, result._devicePtr, _shape.TotalElements);
+            return result;
+        }
+
+        public ITensor ArgMax(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? axis + rank : axis;
+            int dim = _shape[actualAxis];
+
+            int outer = 1; for (int i = 0; i < actualAxis; i++) outer *= _shape[i];
+            int inner = 1; for (int i = actualAxis + 1; i < rank; i++) inner *= _shape[i];
+
+            int[] outDims = _shape.Dimensions.Where((_, i) => i != actualAxis).ToArray();
+            var result = new CudaBackend(new TensorShape(outDims), false, _device);
+
+            CUDA.ArgMax(_devicePtr, result._devicePtr, outer, dim, inner);
+            return result;
+        }
+
+        public ITensor ArgMin(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? axis + rank : axis;
+            int dim = _shape[actualAxis];
+
+            int outer = 1; for (int i = 0; i < actualAxis; i++) outer *= _shape[i];
+            int inner = 1; for (int i = actualAxis + 1; i < rank; i++) inner *= _shape[i];
+
+            int[] outDims = _shape.Dimensions.Where((_, i) => i != actualAxis).ToArray();
+            var result = new CudaBackend(new TensorShape(outDims), false, _device);
+
+            CUDA.ArgMin(_devicePtr, result._devicePtr, outer, dim, inner);
+            return result;
+        }
+
+        public ITensor CumSum(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? axis + rank : axis;
+            int dim = _shape[actualAxis];
+
+            int outer = 1; for (int i = 0; i < actualAxis; i++) outer *= _shape[i];
+            int inner = 1; for (int i = actualAxis + 1; i < rank; i++) inner *= _shape[i];
+
+            var result = new CudaBackend(_shape, false, _device);
+            CUDA.CumSum(_devicePtr, result._devicePtr, outer, dim, inner);
+            return result;
         }
 
         public float[] ToArray()
@@ -86,7 +241,7 @@ namespace ArborNet.Core.Backends
         public ITensor Clone()
         {
             ulong bytes = (ulong)_shape.TotalElements * sizeof(float);
-            CudaMalloc(out IntPtr clonePtr, bytes);
+            IntPtr clonePtr = CudaMemoryPool.Instance.Allocate(bytes);
             CudaMemcpy(clonePtr, _devicePtr, bytes, cudaMemcpyKind.cudaMemcpyDeviceToDevice);
             return new CudaBackend(_shape, clonePtr, _requiresGrad, _device);
         }
@@ -137,10 +292,6 @@ namespace ArborNet.Core.Backends
             return FromArray(cpu.ToArray(), new TensorShape(size, size), device);
         }
 
-        // ====================================================================
-        // ELEMENT-WISE OPERATIONS
-        // ====================================================================
-
         public ITensor Add(ITensor other) => ElementwiseBinary(other, NativeAdd);
         public ITensor Subtract(ITensor other) => ElementwiseBinary(other, NativeSubtract);
         public ITensor Multiply(ITensor other) => ElementwiseBinary(other, NativeMultiply);
@@ -157,22 +308,23 @@ namespace ArborNet.Core.Backends
             kernel(_devicePtr, o._devicePtr, result._devicePtr, resultShape.TotalElements);
 
             var resultTensor = new CudaBackend(resultShape, result._devicePtr, _requiresGrad || o.RequiresGrad, _device);
+            resultTensor.Inputs = new[] { this, other };
 
             if (resultTensor.RequiresGrad)
             {
+                var capturedSelf = this;
+                var capturedOther = o;
+
                 resultTensor.GradFn = grad =>
                 {
-                    if (_requiresGrad) AccumulateGrad(ref _grad, grad.BroadcastTo(_shape));
-                    if (o.RequiresGrad) AccumulateGrad(ref o._grad, grad.BroadcastTo(o.Shape));
+                    if (capturedSelf.RequiresGrad)
+                        capturedSelf.AccumulateGrad(grad.BroadcastTo(capturedSelf._shape));
+                    if (capturedOther.RequiresGrad)
+                        capturedOther.AccumulateGrad(grad.BroadcastTo(capturedOther.Shape));
                     return grad;
                 };
             }
             return resultTensor;
-        }
-
-        private void AccumulateGrad(ref ITensor? grad, ITensor delta)
-        {
-            grad = grad == null ? delta.Clone() : grad.Add(delta);
         }
 
         public ITensor Pow(float exponent)
@@ -203,7 +355,7 @@ namespace ArborNet.Core.Backends
                     var mask = new CudaBackend(_shape, false, _device);
                     NativeClipMask(self._devicePtr, mask._devicePtr, _shape.TotalElements, min, max);
                     var finalGrad = grad.Multiply(mask);
-                    AccumulateGrad(ref self._grad, finalGrad);
+                    self.AccumulateGrad(finalGrad);
                     return finalGrad;
                 };
             }
@@ -268,42 +420,128 @@ namespace ArborNet.Core.Backends
         public ITensor BroadcastTo(TensorShape targetShape)
         {
             if (_shape.Equals(targetShape)) return Clone();
+
+            int[] alignedInDims = Enumerable.Repeat(1, targetShape.Rank).ToArray();
+            int offset = targetShape.Rank - _shape.Rank;
+            for (int i = 0; i < _shape.Rank; i++)
+            {
+                alignedInDims[i + offset] = _shape.Dimensions[i];
+            }
+
+            var alignedInputShape = new TensorShape(alignedInDims);
             var result = new CudaBackend(targetShape, false, _device);
-            NativeBroadcast(_devicePtr, result._devicePtr, _shape.Dimensions, targetShape.Dimensions, _shape.Rank);
-            return result;
+
+            CUDA.Broadcast(_devicePtr, result._devicePtr, alignedInputShape.Dimensions, targetShape.Dimensions);
+
+            var resultTensor = new CudaBackend(targetShape, result._devicePtr, _requiresGrad, _device);
+            resultTensor.Inputs = new[] { this };
+
+            if (_requiresGrad)
+            {
+                var capturedSelf = this;
+                resultTensor.GradFn = grad =>
+                {
+                    if (capturedSelf.RequiresGrad)
+                        capturedSelf.AccumulateGrad(grad.BroadcastTo(capturedSelf._shape));
+                    return grad;
+                };
+            }
+
+            return resultTensor;
         }
 
-        public ITensor Sum(int? axis = null)
+        public ITensor ReshapeWithBroadcast(TensorShape target, int axis)
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+
+            int targetRank = target.Rank;
+            int actualAxis = axis < 0 ? targetRank + axis : axis;
+
+            var viewDims = Enumerable.Repeat(1, targetRank).ToArray();
+            int origIdx = 0;
+            for (int i = actualAxis; i < targetRank && origIdx < _shape.Rank; i++)
+            {
+                viewDims[i] = _shape.Dimensions[origIdx++];
+            }
+
+            var reshapedView = this.Reshape(viewDims);
+            return reshapedView.BroadcastTo(target);
+        }
+
+        public ITensor Sum(int? axis = null, bool keepDims = false)
         {
             if (axis is null)
             {
-                var result = new CudaBackend(new TensorShape(1), false, _device);
+                var newShape = keepDims ? new TensorShape(Enumerable.Repeat(1, _shape.Rank).ToArray()) : new TensorShape(1);
+                var result = new CudaBackend(newShape, false, _device);
                 NativeSumAll(_devicePtr, result._devicePtr, _shape.TotalElements);
                 return result;
             }
-            return ((CpuBackend)this.To(Device.CPU)).Sum(axis).To(_device);
+            return ((CpuBackend)this.To(Device.CPU)).Sum(axis, keepDims).To(_device);
         }
 
-        public ITensor Mean(int? axis = null)
+        public ITensor Sum(int[] axes, bool keepDims = false)
+        {
+            if (axes == null || axes.Length == 0) return Sum((int?)null, keepDims);
+            int rank = _shape.Rank;
+            var normalizedAxes = axes.Select(a => a < 0 ? a + rank : a).Distinct().ToList();
+            normalizedAxes.Sort((a, b) => b.CompareTo(a));
+
+            ITensor current = this;
+            foreach (int axis in normalizedAxes)
+            {
+                current = current.Sum(axis, keepDims);
+            }
+            return current;
+        }
+
+        public ITensor Mean(int[] axes, bool keepDims = false)
+        {
+            if (axes == null || axes.Length == 0)
+            {
+                var result = new CudaBackend(keepDims ? new TensorShape(Enumerable.Repeat(1, _shape.Rank).ToArray()) : new TensorShape(1), false, _device);
+                CUDA.MeanAll(_devicePtr, result._devicePtr, _shape.TotalElements);
+                return result;
+            }
+
+            ITensor current = this;
+            var sortedAxes = axes.Select(a => a < 0 ? a + _shape.Rank : a).OrderByDescending(a => a).ToArray();
+
+            foreach (int axis in sortedAxes)
+            {
+                current = current.Mean(axis, keepDims);
+            }
+
+            return current;
+        }
+
+        public ITensor Mean(int? axis = null, bool keepDims = false)
         {
             if (axis is null)
             {
-                var result = new CudaBackend(new TensorShape(1), false, _device);
-                NativeMeanAll(_devicePtr, result._devicePtr, _shape.TotalElements);
+                var newShape = keepDims ? new TensorShape(Enumerable.Repeat(1, _shape.Rank).ToArray()) : new TensorShape(1);
+                var result = new CudaBackend(newShape, false, _device);
+                CUDA.MeanAll(_devicePtr, result._devicePtr, _shape.TotalElements);
                 return result;
             }
-            return ((CpuBackend)this.To(Device.CPU)).Mean(axis).To(_device);
+
+            int actualAxis = axis.Value < 0 ? axis.Value + _shape.Rank : axis.Value;
+            int dim = _shape[actualAxis];
+            int outer = 1; for (int i = 0; i < actualAxis; i++) outer *= _shape[i];
+            int inner = 1; for (int i = actualAxis + 1; i < _shape.Rank; i++) inner *= _shape[i];
+
+            int[] outDims = keepDims
+                ? _shape.Dimensions.Select((d, i) => i == actualAxis ? 1 : d).ToArray()
+                : _shape.Dimensions.Where((_, i) => i != actualAxis).ToArray();
+
+            var resultTensor = new CudaBackend(new TensorShape(outDims), false, _device);
+
+            CUDA.MeanAxis(_devicePtr, resultTensor._devicePtr, outer, dim, inner);
+            return resultTensor;
         }
 
-        public ITensor Mean(int[] axes)
-        {
-            if (axes == null || axes.Length == 0) return Mean((int?)null);
-            var cpu = (CpuBackend)this.To(Device.CPU);
-            return cpu.Mean(axes).To(_device);
-        }
-
-        public ITensor Max(int axis = -1) => ((CpuBackend)this.To(Device.CPU)).Max(axis).To(_device);
-        public ITensor Min(int axis = -1) => ((CpuBackend)this.To(Device.CPU)).Min(axis).To(_device);
+        public ITensor Max(int axis = -1, bool keepDims = false) => ((CpuBackend)this.To(Device.CPU)).Max(axis, keepDims).To(_device);
+        public ITensor Min(int axis = -1, bool keepDims = false) => ((CpuBackend)this.To(Device.CPU)).Min(axis, keepDims).To(_device);
 
         public ITensor Slice(params (int start, int end, int step)[] slices)
             => ((CpuBackend)this.To(Device.CPU)).Slice(slices).To(_device);
@@ -312,49 +550,6 @@ namespace ArborNet.Core.Backends
         {
             var cpuOthers = others.Select(o => (CpuBackend)o.To(Device.CPU));
             return ((CpuBackend)this.To(Device.CPU)).Concat(cpuOthers, axis).To(_device);
-        }
-
-        public ITensor GreaterThan(ITensor other)
-            => ElementwiseBinary(other, NativeGreaterThan);
-
-        public ITensor GreaterThanOrEqual(ITensor other)
-            => ((CpuBackend)this.To(Device.CPU)).GreaterThanOrEqual(other).To(_device);
-
-        public ITensor LessEqual(ITensor other)
-            => ((CpuBackend)this.To(Device.CPU)).LessEqual(other).To(_device);
-
-        public ITensor Where(ITensor condition, ITensor trueValue, ITensor falseValue)
-        {
-            var cpu = (CpuBackend)this.To(Device.CPU);
-            var condCpu = (CpuBackend)condition.To(Device.CPU);
-            var trueCpu = (CpuBackend)trueValue.To(Device.CPU);
-            var falseCpu = (CpuBackend)falseValue.To(Device.CPU);
-            return cpu.Where(condCpu, trueCpu, falseCpu).To(_device);
-        }
-
-        public ITensor ArgMin(int axis)
-        {
-            var cpu = (CpuBackend)this.To(Device.CPU);
-            return cpu.ArgMin(axis).To(_device);
-        }
-
-        public ITensor ArgMax(int axis)
-        {
-            var cpu = (CpuBackend)this.To(Device.CPU);
-            return cpu.ArgMax(axis).To(_device);
-        }
-
-        public ITensor CumSum(int axis)
-        {
-            int rank = _shape.Rank;
-            int actualAxis = axis < 0 ? axis + rank : axis;
-            int dim = _shape[actualAxis];
-            int outer = 1; for (int i = 0; i < actualAxis; i++) outer *= _shape[i];
-            int inner = 1; for (int i = actualAxis + 1; i < rank; i++) inner *= _shape[i];
-
-            var result = new CudaBackend(_shape, false, _device);
-            NativeCumSum(_devicePtr, result._devicePtr, outer, dim, inner);
-            return result;
         }
 
         public ITensor Add(float scalar) => Add(FromScalar(scalar));
@@ -370,19 +565,9 @@ namespace ArborNet.Core.Backends
 
         public ITensor BroadcastAdd(ITensor other) => Add(other);
 
-        public ITensor ReshapeWithBroadcast(TensorShape target, int axis)
-        {
-            var newShape = (int[])_shape.Dimensions.Clone();
-            if (axis >= 0 && axis < newShape.Length)
-                newShape[axis] = target.Dimensions[axis];
-            return Reshape(newShape);
-        }
-
         public void Backward(ITensor? gradient = null)
         {
-            if (!_requiresGrad) return;
-            _grad = gradient ?? Ones(_shape, _device);
-            _gradFn?.Invoke(_grad);
+            ArborNet.Core.Autograd.AutogradEngine.Backward(this, gradient);
         }
 
         public void ClearGrad()
@@ -438,8 +623,9 @@ namespace ArborNet.Core.Backends
         {
             if (!_disposed && _devicePtr != IntPtr.Zero)
             {
-                CudaFree(_devicePtr);
-                GC.RemoveMemoryPressure((long)_shape.TotalElements * sizeof(float));
+                ulong bytes = (ulong)_shape.TotalElements * sizeof(float);
+                CudaMemoryPool.Instance.Free(_devicePtr, bytes);
+                GC.RemoveMemoryPressure((long)bytes);
                 _devicePtr = IntPtr.Zero;
             }
             _disposed = true;

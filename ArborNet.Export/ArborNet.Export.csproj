@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
     <ProjectReference Include="..\ArborNet.Data\ArborNet.Data.csproj" />
     <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />

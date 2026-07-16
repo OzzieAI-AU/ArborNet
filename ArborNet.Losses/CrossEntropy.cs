@@ -16,51 +16,31 @@ namespace ArborNet.Losses
     /// </remarks>
     public class CrossEntropy : BaseLoss
     {
-        /// <summary>
-        /// Computes the cross-entropy loss between predictions and targets.
-        /// </summary>
-        /// <param name="predictions">The raw predictions (logits) from the model. 
-        /// Must be a tensor of shape (batch_size, num_classes) or similar.</param>
-        /// <param name="targets">The target labels. When the shape matches <paramref name="predictions"/>, 
-        /// targets are treated as one-hot encoded. Otherwise, they are treated as class indices.</param>
-        /// <param name="reduction">The reduction to apply to the output: 'none', 'mean', or 'sum'. 
-        /// Default is 'mean'.</param>
-        /// <returns>The computed loss as a tensor. When reduced with 'mean' or 'sum', returns a scalar tensor.</returns>
-        /// <remarks>
-        /// The forward pass applies a softmax activation along the last dimension of the predictions,
-        /// computes the negative log likelihood with the targets, and applies the specified reduction.
-        /// If <see cref="ITensor.RequiresGrad"/> is true on the predictions, a gradient function is
-        /// attached for automatic differentiation during backpropagation.
-        /// </remarks>
         public override ITensor Forward(ITensor predictions, ITensor targets, string reduction = "mean")
         {
-            ValidateInputs(predictions, targets);
+            if (predictions == null) throw new ArgumentNullException(nameof(predictions));
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
 
+            // 1. Apply Softmax to predictions along the class dimension
             var probs = new Softmax(-1).Forward(predictions);
+
+            // 2. Compute Log Probabilities
             var logProbs = probs.Log();
 
             ITensor loss;
             if (targets.Shape.Equals(probs.Shape))
             {
+                // Dense targets (One-Hot Encoded)
                 loss = targets.Multiply(logProbs).Multiply(-1.0f);
             }
             else
             {
-                loss = logProbs.Negate().Where(targets, logProbs.Negate(), Tensor.Zeros(logProbs.Shape));
+                // Sparse targets (Class Indices): Gather negative log probs
+                loss = logProbs.Negate().Gather(axis: 1, targets);
             }
 
-            loss = ApplyReduction(loss, reduction, predictions);
-
-            if (predictions.RequiresGrad)
-            {
-                loss.GradFn = gradOutput =>
-                {
-                    var grad = probs.Subtract(targets);
-                    return grad.Multiply(gradOutput);
-                };
-            }
-
-            return loss;
+            // 3. Apply reduction (Mean, Sum, or None)
+            return ApplyReduction(loss, reduction, predictions);
         }
     }
 }

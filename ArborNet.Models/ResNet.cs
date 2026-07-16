@@ -7,6 +7,8 @@ using ArborNet.Core.Tensors;
 using ArborNet.Core.Models;
 using ArborNet.Layers;
 using ArborNet.Activations;
+using ArborNet.Layers.Normalization;
+using ArborNet.Core.Layers;
 
 namespace ArborNet.Models
 {
@@ -26,12 +28,12 @@ namespace ArborNet.Models
         /// The sequence of layers that constitute the ResNet model.
         /// </summary>
         private readonly List<ILayer> _layers = new();
-        
+
         /// <summary>
         /// The final fully-connected layer for classification.
         /// </summary>
         private readonly Linear _fc;
-        
+
         /// <summary>
         /// Indicates whether bottleneck blocks should be used (true for ResNet-50 and deeper).
         /// </summary>
@@ -94,11 +96,13 @@ namespace ArborNet.Models
             for (int i = 0; i < blocks; i++)
             {
                 int s = (i == 0) ? stride : 1;
-                // Explicitly cast to the shared base type (BaseLayer or ILayer)
                 ILayer block = _isBottleneck
                     ? (ILayer)new BottleneckBlock(inChannels, planes, s, expansion, device)
                     : (ILayer)new BasicBlock(inChannels, planes, s, expansion, device);
-                _layers.Add(block); _layers.Add(block);
+
+                // FIXED: Only add the block ONCE to avoid duplicate execution
+                _layers.Add(block);
+
                 inChannels = planes * expansion;
             }
             return inChannels;
@@ -139,12 +143,12 @@ namespace ArborNet.Models
         /// First convolution layer in the residual block.
         /// </summary>
         private readonly Conv2D conv1, conv2;
-        
+
         /// <summary>
         /// Batch normalization layers corresponding to the convolutions.
         /// </summary>
         private readonly BatchNorm bn1, bn2;
-        
+
         /// <summary>
         /// Optional downsampling convolution for shortcut connection when dimensions differ.
         /// </summary>
@@ -209,12 +213,12 @@ namespace ArborNet.Models
         /// First 1x1 convolution that reduces channel dimension.
         /// </summary>
         private readonly Conv2D conv1, conv2, conv3;
-        
+
         /// <summary>
         /// Batch normalization layers for each convolution in the bottleneck.
         /// </summary>
         private readonly BatchNorm bn1, bn2, bn3;
-        
+
         /// <summary>
         /// Optional downsampling layer for the residual connection when needed.
         /// </summary>
@@ -283,31 +287,109 @@ namespace ArborNet.Models
     /// </remarks>
     public class MaxPool2D : BaseLayer
     {
-        /// <summary>
-        /// Size of the pooling kernel.
-        /// </summary>
-        private readonly int kernelSize, stride, padding;
-        
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MaxPool2D"/> class.
-        /// </summary>
-        /// <param name="kernelSize">Size of the pooling window.</param>
-        /// <param name="stride">Stride between pooling windows.</param>
-        /// <param name="padding">Zero-padding added to the input borders.</param>
-        public MaxPool2D(int kernelSize = 2, int stride = 2, int padding = 0) 
-            => (this.kernelSize, this.stride, this.padding) = (kernelSize, stride, padding);
-        
-        /// <summary>
-        /// Performs the max pooling operation.
-        /// </summary>
-        /// <param name="x">Input tensor.</param>
-        /// <returns>Output tensor after max pooling.</returns>
-        public override ITensor Forward(ITensor x) => x; // production impl would use backend maxpool
-        
-        /// <summary>
-        /// Returns the parameters of this layer (none for pooling).
-        /// </summary>
-        /// <returns>Empty collection of tensors.</returns>
+        private readonly int _kernelSize;
+        private readonly int _stride;
+        private readonly int _padding;
+
+        public MaxPool2D(int kernelSize = 2, int stride = 2, int padding = 0)
+        {
+            _kernelSize = kernelSize;
+            _stride = stride;
+            _padding = padding;
+        }
+
+        public override ITensor Forward(ITensor x)
+        {
+            ValidateInput(x, expectedRank: 4);
+            int batch = x.Shape[0];
+            int channels = x.Shape[1];
+            int inH = x.Shape[2];
+            int inW = x.Shape[3];
+
+            int outH = (inH + 2 * _padding - _kernelSize) / _stride + 1;
+            int outW = (inW + 2 * _padding - _kernelSize) / _stride + 1;
+
+            if (outH <= 0 || outW <= 0)
+                throw new InvalidOperationException("Output dimensions for MaxPool2D are non-positive.");
+
+            var outputShape = new TensorShape(batch, channels, outH, outW);
+            var xData = x.ToArray();
+            var outData = new float[outputShape.TotalElements];
+            var argmaxIndices = new int[outputShape.TotalElements]; // Keep track of winning index for backpropagation
+
+            int inStrideC = inH * inW;
+            int inStrideH = inW;
+            int outStrideC = outH * outW;
+            int outStrideH = outW;
+
+            for (int b = 0; b < batch; b++)
+            {
+                for (int c = 0; c < channels; c++)
+                {
+                    for (int oh = 0; oh < outH; oh++)
+                    {
+                        for (int ow = 0; ow < outW; ow++)
+                        {
+                            float maxVal = float.MinValue;
+                            int winIdx = -1;
+                            int outIdx = b * channels * outStrideC + c * outStrideC + oh * outStrideH + ow;
+
+                            for (int kh = 0; kh < _kernelSize; kh++)
+                            {
+                                for (int kw = 0; kw < _kernelSize; kw++)
+                                {
+                                    int ih = oh * _stride - _padding + kh;
+                                    int iw = ow * _stride - _padding + kw;
+
+                                    if (ih >= 0 && ih < inH && iw >= 0 && iw < inW)
+                                    {
+                                        int inIdx = b * channels * inStrideC + c * inStrideC + ih * inStrideH + iw;
+                                        if (xData[inIdx] > maxVal)
+                                        {
+                                            maxVal = xData[inIdx];
+                                            winIdx = inIdx;
+                                        }
+                                    }
+                                }
+                            }
+                            outData[outIdx] = maxVal;
+                            argmaxIndices[outIdx] = winIdx;
+                        }
+                    }
+                }
+            }
+
+            var result = Tensor.FromArray(outData, outputShape, x.Device);
+
+            if (x.RequiresGrad)
+            {
+                var capturedX = x;
+                result.GradFn = gradOutput =>
+                {
+                    var goData = gradOutput.ToArray();
+                    var gradInputData = new float[capturedX.Shape.TotalElements];
+
+                    // Route gradients exclusively to the winning coordinates
+                    for (int i = 0; i < argmaxIndices.Length; i++)
+                    {
+                        int targetIdx = argmaxIndices[i];
+                        if (targetIdx != -1)
+                        {
+                            gradInputData[targetIdx] += goData[i];
+                        }
+                    }
+
+                    var gradInput = Tensor.FromArray(gradInputData, capturedX.Shape, x.Device);
+                    capturedX.Grad = capturedX.Grad == null ? gradInput : capturedX.Grad.Add(gradInput);
+                    capturedX.GradFn?.Invoke(gradInput);
+
+                    return gradInput;
+                };
+            }
+
+            return result;
+        }
+
         public override IEnumerable<ITensor> Parameters() => Array.Empty<ITensor>();
     }
 
@@ -320,20 +402,20 @@ namespace ArborNet.Models
         /// Desired output spatial size.
         /// </summary>
         private readonly int outputSize;
-        
+
         /// <summary>
         /// Initializes a new instance of the <see cref="AdaptiveAvgPool2D"/> class.
         /// </summary>
         /// <param name="outputSize">Target height and width after pooling (default 1 for global pooling).</param>
         public AdaptiveAvgPool2D(int outputSize = 1) => this.outputSize = outputSize;
-        
+
         /// <summary>
         /// Performs adaptive average pooling by computing mean across spatial dimensions.
         /// </summary>
         /// <param name="x">Input tensor.</param>
         /// <returns>Tensor with reduced spatial dimensions.</returns>
         public override ITensor Forward(ITensor x) => x.Mean(new[] { -1, -2 });
-        
+
         /// <summary>
         /// Returns the parameters of this layer (none for pooling).
         /// </summary>

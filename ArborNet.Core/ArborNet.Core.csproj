@@ -4,27 +4,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Native\Cuda Libs\Linux\" />
-    <Folder Include="Native\Cuda Libs\Win\12.3.1_546.12\" />
-    <Folder Include="Native\Kernels\" />
+    <Compile Remove="Native\Cuda Libs\**" />
+    <EmbeddedResource Remove="Native\Cuda Libs\**" />
+    <None Remove="Native\Cuda Libs\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Native\Cuda Libs\Win\12.3.1_546.12\cublas64_12.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Native\Cuda Libs\Win\12.3.1_546.12\cublasLt64_12.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Native\Cuda Libs\Win\12.3.1_546.12\cudart64_12.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Native\Cuda Libs\Win\12.3.1_546.12\nvblas64_12.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <Folder Include="Native\Kernels\" />
   </ItemGroup>
 
 </Project>

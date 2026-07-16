@@ -1,4 +1,5 @@
 ﻿using ArborNet.Core.Interfaces;
+using ArborNet.Core.Layers;
 using ArborNet.Core.Tensors;
 using System;
 using System.Collections.Generic;
@@ -64,24 +65,35 @@ namespace ArborNet.Layers
 
         /// <summary>
         /// Performs the forward pass of layer normalization on the input tensor.
+        /// Features robust dimension recovery and broadcasting alignment.
         /// </summary>
         /// <param name="input">The input tensor to be normalized.</param>
         /// <returns>
         /// A tensor with the same shape as <paramref name="input"/> containing the 
         /// layer-normalized values with the learned affine transformation applied.
         /// </returns>
-        /// <remarks>
-        /// Normalization is performed over the last dimension. The implementation 
-        /// follows the standard LayerNorm formula using mean and variance computed 
-        /// across the specified normalized dimensions.
-        /// </remarks>
         public override ITensor Forward(ITensor input)
         {
-            var mean = input.Mean(-1);
-            var variance = input.Subtract(mean).Pow(2f).Mean(-1);
-            var std = variance.Add(Tensor.FromScalar(eps)).Sqrt();
-            var normalized = input.Subtract(mean).Divide(std);
-            return normalized.Multiply(gamma).Add(beta);
+            if (input == null) throw new ArgumentNullException(nameof(input));
+
+            if (input.Shape.Rank == 0)
+                throw new ArgumentException("Input tensor must have at least 1 dimension to perform LayerNorm.");
+
+            try
+            {
+                // keepDims: true ensures [16, 64] -> Mean(-1) becomes [16, 1], perfectly broadcasting back to [16, 64]
+                var mean = input.Mean(-1, keepDims: true);
+                var variance = input.Subtract(mean).Pow(2f).Mean(-1, keepDims: true);
+                var std = variance.Add(Tensor.FromScalar(eps)).Sqrt();
+
+                var normalized = input.Subtract(mean).Divide(std);
+                return normalized.Multiply(gamma).Add(beta);
+            }
+            catch (Exception ex)
+            {
+                // Resilient failure: catch broadcast/dimension mismatches and provide explicit context
+                throw new InvalidOperationException($"Dimension alignment failed during LayerNorm forward pass. Verify input shape matches expected normalized shape. Inner Error: {ex.Message}", ex);
+            }
         }
 
         /// <summary>

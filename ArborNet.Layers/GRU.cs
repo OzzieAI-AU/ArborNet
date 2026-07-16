@@ -5,6 +5,7 @@ using ArborNet.Core.Interfaces;
 using ArborNet.Core.Tensors;
 using ArborNet.Core.Functional;
 using ArborNet.Activations;
+using ArborNet.Core.Layers;
 
 namespace ArborNet.Layers
 {
@@ -120,36 +121,46 @@ namespace ArborNet.Layers
         /// <returns>The output hidden state tensor of shape (hiddenSize,).</returns>
         public override ITensor Forward(ITensor input)
         {
-            // Ensure input shape is correct (inputSize,)
-            if (input.Shape.Rank != 1 || input.Shape[0] != inputSize)
-            {
-                throw new ArgumentException($"Input shape must be ({inputSize},), but got {input.Shape}");
-            }
+            ValidateInput(input);
 
-            var x = input; // (inputSize,)
-            var h = hidden; // (hiddenSize,)
+            int batch = input.Shape.Rank == 2 ? input.Shape[0] : 1;
+            int inputFeatures = input.Shape[^1];
 
-            // Reshape for matrix multiplication: treat as column vectors
-            var x_col = x.Reshape(inputSize, 1); // (inputSize, 1)
-            var h_col = h.Reshape(hiddenSize, 1); // (hiddenSize, 1)
+            if (inputFeatures != inputSize)
+                throw new ArgumentException($"Input feature size mismatch. Expected {inputSize}, got {inputFeatures}");
 
-            // Reset gate: r = sigmoid(W_ir @ x + b_ir + W_hr @ h + b_hr)
-            var r = W_ir.MatMul(x_col).Add(b_ir.Reshape(hiddenSize, 1)).Add(W_hr.MatMul(h_col)).Add(b_hr.Reshape(hiddenSize, 1));
-            r = r.Sigmoid().Reshape(hiddenSize); // (hiddenSize,)
+            ITensor x = input.Reshape(batch, inputSize);
 
-            // Update gate: z = sigmoid(W_iz @ x + b_iz + W_hz @ h + b_hz)
-            var z = W_iz.MatMul(x_col).Add(b_iz.Reshape(hiddenSize, 1)).Add(W_hz.MatMul(h_col)).Add(b_hz.Reshape(hiddenSize, 1));
-            z = z.Sigmoid().Reshape(hiddenSize); // (hiddenSize,)
+            // Dynamically scale hidden states to match batch dimension
+            ITensor h = (hidden.Shape.Rank == 2 && hidden.Shape[0] == batch)
+                ? hidden
+                : Tensor.Zeros(new TensorShape(batch, hiddenSize), input.Device);
 
-            // Candidate: n = tanh(W_in @ x + b_in + r * (W_hn @ h + b_hn))
-            var n_temp = W_hn.MatMul(h_col).Add(b_hn.Reshape(hiddenSize, 1)); // (hiddenSize, 1)
-            n_temp = r.Reshape(hiddenSize, 1).Multiply(n_temp); // Element-wise multiply
-            var n = W_in.MatMul(x_col).Add(b_in.Reshape(hiddenSize, 1)).Add(n_temp);
-            n = n.Tanh().Reshape(hiddenSize); // (hiddenSize,)
+            var r = W_ir.MatMul(x.Transpose(new[] { 1, 0 }))
+                .Add(b_ir.Reshape(hiddenSize, 1))
+                .Add(W_hr.MatMul(h.Transpose(new[] { 1, 0 })))
+                .Add(b_hr.Reshape(hiddenSize, 1));
 
-            // New hidden: h_new = z * h + (1 - z) * n
-            var one_minus_z = Tensor.Ones(new TensorShape(hiddenSize)).Subtract(z); // (hiddenSize,)
-            hidden = z.Multiply(h).Add(one_minus_z.Multiply(n)); // (hiddenSize,)
+            r = r.Sigmoid().Transpose(new[] { 1, 0 });
+
+            var z = W_iz.MatMul(x.Transpose(new[] { 1, 0 }))
+                .Add(b_iz.Reshape(hiddenSize, 1))
+                .Add(W_hz.MatMul(h.Transpose(new[] { 1, 0 })))
+                .Add(b_hz.Reshape(hiddenSize, 1));
+
+            z = z.Sigmoid().Transpose(new[] { 1, 0 });
+
+            var n_temp = W_hn.MatMul(h.Transpose(new[] { 1, 0 })).Add(b_hn.Reshape(hiddenSize, 1)).Transpose(new[] { 1, 0 });
+            n_temp = r.Multiply(n_temp);
+
+            var n = W_in.MatMul(x.Transpose(new[] { 1, 0 }))
+                .Add(b_in.Reshape(hiddenSize, 1))
+                .Add(n_temp.Transpose(new[] { 1, 0 }));
+
+            n = n.Tanh().Transpose(new[] { 1, 0 });
+
+            var one = Tensor.Ones(z.Shape, input.Device);
+            hidden = z.Multiply(h).Add(one.Subtract(z).Multiply(n));
 
             return hidden;
         }
@@ -174,8 +185,6 @@ namespace ArborNet.Layers
             yield return b_hz;
             yield return b_hn;
         }
-
-
 
         /// <summary>
         /// Resets the hidden state to zeros.

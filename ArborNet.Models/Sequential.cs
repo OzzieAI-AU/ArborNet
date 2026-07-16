@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using ArborNet.Core.Interfaces;
+using ArborNet.Core.Layers;
 using ArborNet.Core.Models;
 using ArborNet.Core.Tensors;
 using ArborNet.Layers;

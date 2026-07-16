@@ -18,9 +18,10 @@
   <ItemGroup>
     <Compile Include="AdvancedLayers.cs" />
     <Compile Include="Attention.cs" />
-    <Compile Include="BaseLayer.cs" />
-    <Compile Include="BatchNorm.cs" />
     <Compile Include="ActivationLayer.cs" />
+    <Compile Include="SubquadraticAttentionOp.cs" />
+    <Compile Include="FractalLinear.cs" />
+    <Compile Include="SubquadraticAttentionLayer.cs" />
     <Compile Include="LayerNorm.cs" />
     <Compile Include="Conv1D.cs" />
     <Compile Include="Conv2D.cs" />

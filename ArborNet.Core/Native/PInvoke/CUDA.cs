@@ -7,7 +7,7 @@ namespace ArborNet.Core.Native.PInvoke
     /// Provides managed wrappers for CUDA runtime API, cuBLAS, and custom GPU kernels.
     /// Fully compatible with existing code while maintaining perfect naming and robustness.
     /// </summary>
-    public static class CUDA
+    public static partial class CUDA
     {
 
 
@@ -201,6 +201,9 @@ namespace ArborNet.Core.Native.PInvoke
         [DllImport(CustomKernel, CallingConvention = CallingConvention.Cdecl)]
         public static extern void NativeClipMask(IntPtr input, IntPtr output, int count, float minVal, float maxVal);
 
+        [DllImport(CustomKernel, CallingConvention = CallingConvention.Cdecl, EntryPoint = "NativeMeanAxis")]
+        public static extern void NativeMeanAxis(IntPtr input, IntPtr output, int outer, int dim, int inner);
+
         #endregion
 
         #region Public Managed API
@@ -239,6 +242,8 @@ namespace ArborNet.Core.Native.PInvoke
 
         public static void SumAll(IntPtr input, IntPtr output, int n) => NativeSumAll(input, output, n);
         public static void MeanAll(IntPtr input, IntPtr output, int n) => NativeMeanAll(input, output, n);
+        public static void MeanAxis(IntPtr input, IntPtr output, int outer, int dim, int inner)
+            => NativeMeanAxis(input, output, outer, dim, inner);
 
         public static void ArgMax(IntPtr input, IntPtr output, int outer, int dim, int inner)
             => NativeArgMax(input, output, outer, dim, inner);

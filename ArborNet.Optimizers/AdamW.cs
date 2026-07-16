@@ -8,12 +8,10 @@ namespace ArborNet.Optimizers
     public class AdamW : IOptimizer
     {
         public double LearningRate { get; set; }
-
         private readonly double _beta1;
         private readonly double _beta2;
         private readonly double _eps;
         private readonly double _weightDecay;
-
         private int _timestep;
         private readonly Dictionary<ITensor, (ITensor m, ITensor v)> _state = new();
 
@@ -37,8 +35,11 @@ namespace ArborNet.Optimizers
 
                 var grad = p.Grad;
 
+                // 1. In-place Weight Decay (L2 Regularization)
                 if (_weightDecay > 0)
+                {
                     grad = grad.Add(p.Multiply(_weightDecay));
+                }
 
                 if (!_state.TryGetValue(p, out var state))
                 {
@@ -49,17 +50,21 @@ namespace ArborNet.Optimizers
 
                 var (m, v) = state;
 
-                m = m.Multiply(_beta1).Add(grad.Multiply(1 - _beta1));
-                v = v.Multiply(_beta2).Add(grad.Multiply(grad).Multiply(1 - _beta2));
+                // 2. Update First and Second Moments on-device
+                m.MultiplyInPlace((float)_beta1);
+                m.AddInPlace(grad.Multiply(1f - (float)_beta1));
+
+                v.MultiplyInPlace((float)_beta2);
+                v.AddInPlace(grad.Multiply(grad).Multiply(1f - (float)_beta2));
 
                 var mHat = m.Divide(1 - Math.Pow(_beta1, _timestep));
                 var vHat = v.Divide(1 - Math.Pow(_beta2, _timestep));
 
-                var denom = vHat.Sqrt().Add(Tensor.FromScalar((float)_eps, p.Device));
+                // 3. Compute Delta and Subtract In-Place
+                var denom = vHat.Sqrt().Add((float)_eps);
                 var update = mHat.Divide(denom).Multiply((float)LearningRate);
 
-                var updated = p.Subtract(update);
-                p.SetData(updated.ToArray());
+                p.SubtractInPlace(update);
 
                 _state[p] = (m, v);
             }
@@ -68,12 +73,11 @@ namespace ArborNet.Optimizers
         public void ZeroGrad(IEnumerable<ITensor> parameters)
         {
             if (parameters == null) throw new ArgumentNullException(nameof(parameters));
-
             foreach (var param in parameters)
             {
                 if (param != null && param.RequiresGrad)
                 {
-                    param.Grad = Tensor.Zeros(param.Shape, param.Device);
+                    param.Grad = null;
                 }
             }
         }
