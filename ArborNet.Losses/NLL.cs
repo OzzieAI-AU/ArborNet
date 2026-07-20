@@ -1,9 +1,23 @@
-﻿using System;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Losses
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+
+    #endregion
+
     /// <summary>
     /// Negative Log Likelihood loss.
     /// Assumes predictions are log-probabilities and targets are class indices.

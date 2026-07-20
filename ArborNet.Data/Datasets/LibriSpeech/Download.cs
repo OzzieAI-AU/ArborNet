@@ -1,21 +1,36 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Net.Http;
-using System.Threading.Tasks;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data.Datasets.LibriSpeech
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.IO.Compression;
+    using System.Linq;
+    using System.Net.Http;
+    using System.Threading.Tasks;
     /// <summary>
-    /// Provides functionality to download, extract, and load the LibriSpeech corpus.
+    /// Provides comprehensive functionality to download, extract, and load the LibriSpeech corpus.
     /// </summary>
     /// <remarks>
-    /// LibriSpeech is a public domain ASR corpus derived from LibriVox audiobooks.
-    /// This class handles downloading subsets from OpenSLR, extracting the tar.gz archives,
-    /// and parsing the transcripts into usable (audio, transcript) pairs.
+    /// LibriSpeech is a public domain Automatic Speech Recognition (ASR) corpus derived from LibriVox audiobooks.
+    /// This class handles downloading requested subsets (e.g., "train-clean-100", "dev-clean") directly from OpenSLR,
+    /// extracting the downloaded tar.gz archives using GZip compression and TAR reader streams, and parsing the 
+    /// associated transcript files to construct structured (audio file path, transcript text) pairs.
     /// </remarks>
+
+    #endregion
+
     public class Download
     {
         /// <summary>
@@ -48,13 +63,20 @@ namespace ArborNet.Data.Datasets.LibriSpeech
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
-
         /// <summary>
-        /// Downloads and extracts the specified LibriSpeech subset.
+        /// Asynchronously downloads the specified LibriSpeech dataset subset archive and extracts its contents to the target directory.
         /// </summary>
-        /// <param name="subset">The subset to download (e.g., "train-clean-100", "dev-clean").</param>
-        /// <param name="destinationPath">The path where to extract the dataset.</param>
-        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <param name="subset">The identifier of the dataset subset to download (e.g., "train-clean-100", "dev-clean").</param>
+        /// <param name="destinationPath">The local path where the contents of the subset should be extracted.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation of downloading and extracting the dataset.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown when <paramref name="subset"/> is null, empty, or consists only of white-space characters,
+        /// or when <paramref name="destinationPath"/> is null, empty, or consists only of white-space characters.
+        /// </exception>
+        /// <exception cref="HttpRequestException">Thrown when an error occurs during the HTTP request or if the remote server returns a failure status code.</exception>
+        /// <exception cref="IOException">Thrown when file system, stream write operations, or archive decompression fails.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the underlying <see cref="HttpClient"/> has already been disposed.</exception>
+
         public async Task DownloadAndExtractAsync(string subset, string destinationPath)
         {
             if (string.IsNullOrWhiteSpace(subset))
@@ -88,13 +110,16 @@ namespace ArborNet.Data.Datasets.LibriSpeech
                     File.Delete(localFilePath);
             }
         }
-
         /// <summary>
-        /// Downloads and extracts multiple LibriSpeech subsets.
+        /// Asynchronously downloads and extracts multiple LibriSpeech dataset subsets in parallel.
         /// </summary>
-        /// <param name="subsets">The list of subsets to download.</param>
-        /// <param name="destinationPath">The path where to extract the datasets.</param>
-        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <param name="subsets">An enumerable collection of subset identifiers to download (e.g., "train-clean-100", "dev-clean").</param>
+        /// <param name="destinationPath">The local root folder where all subset archives should be extracted.</param>
+        /// <returns>A <see cref="Task"/> representing the completion of all download and extraction processes.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="subsets"/> collection is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="destinationPath"/> is null, empty, or consists only of white-space characters.</exception>
+        /// <exception cref="AggregateException">Thrown when one or more subset download or extraction tasks fail during parallel execution.</exception>
+
         public async Task DownloadAndExtractMultipleAsync(IEnumerable<string> subsets, string destinationPath)
         {
             if (subsets == null)
@@ -105,13 +130,19 @@ namespace ArborNet.Data.Datasets.LibriSpeech
             var tasks = subsets.Select(subset => DownloadAndExtractAsync(subset, destinationPath)).ToArray();
             await Task.WhenAll(tasks);
         }
-
         /// <summary>
-        /// Extracts a .tar.gz archive to the specified destination directory.
+        /// Decompresses a <c>.tar.gz</c> compressed archive and extracts its tar file payload to the destination path.
         /// </summary>
-        /// <param name="tarGzFilePath">The full path to the downloaded .tar.gz file.</param>
-        /// <param name="destinationPath">The directory where the archive should be extracted.</param>
-        /// <exception cref="FileNotFoundException">Thrown when the specified tar.gz file does not exist.</exception>
+        /// <remarks>
+        /// This method decompresses the GZip wrapper to a temporary uncompressed <c>.tar</c> file, 
+        /// invokes the <see cref="ExtractTar(string, string)"/> helper to extract its constituent entries, 
+        /// and ensures the temporary file is deleted afterwards.
+        /// </remarks>
+        /// <param name="tarGzFilePath">The full path to the compressed <c>.tar.gz</c> file on disk.</param>
+        /// <param name="destinationPath">The destination root folder where the archive's structure and files will be extracted.</param>
+        /// <exception cref="FileNotFoundException">Thrown when the archive file specified in <paramref name="tarGzFilePath"/> does not exist.</exception>
+        /// <exception cref="IOException">Thrown when file streaming, directory creation, or disk write operations encounter failures.</exception>
+
         private void ExtractTarGz(string tarGzFilePath, string destinationPath)
         {
             if (!File.Exists(tarGzFilePath))
@@ -143,12 +174,17 @@ namespace ArborNet.Data.Datasets.LibriSpeech
                     File.Delete(tarFilePath);
             }
         }
-
         /// <summary>
-        /// Extracts the contents of a TAR archive using <see cref="System.Formats.Tar.TarReader"/>.
+        /// Extracts the contents of a flat, uncompressed <c>.tar</c> archive file to the specified target directory.
         /// </summary>
-        /// <param name="tarFilePath">The path to the extracted .tar file.</param>
-        /// <param name="destinationPath">The root directory to extract the archive contents into.</param>
+        /// <remarks>
+        /// This method utilizes the <see cref="System.Formats.Tar.TarReader"/> to read through the tape archive stream, 
+        /// recreates the relative directory structure, and writes regular files to the disk.
+        /// </remarks>
+        /// <param name="tarFilePath">The local file path pointing to the uncompressed <c>.tar</c> archive file.</param>
+        /// <param name="destinationPath">The destination root folder where the files should be written.</param>
+        /// <exception cref="IOException">Thrown when an I/O error occurs while reading the tar file or writing entries to the file system.</exception>
+
         private void ExtractTar(string tarFilePath, string destinationPath)
         {
             // Using System.Formats.Tar for extraction (available in .NET 8.0)
@@ -162,6 +198,7 @@ namespace ArborNet.Data.Datasets.LibriSpeech
                     {
                         string entryPath = Path.Combine(destinationPath, entry.Name);
                         Directory.CreateDirectory(Path.GetDirectoryName(entryPath));
+
                         using (var entryStream = entry.DataStream)
                         using (var fileStream = File.Create(entryPath))
                         {
@@ -171,14 +208,21 @@ namespace ArborNet.Data.Datasets.LibriSpeech
                 }
             }
         }
-
         /// <summary>
-        /// Loads the dataset from the extracted path.
-        /// Returns a list of (audioFilePath, transcript) tuples.
+        /// Recursively scans the extracted LibriSpeech directory structure, parsing transcripts and mapping them to their corresponding FLAC audio files.
         /// </summary>
-        /// <param name="extractedPath">The path where the dataset was extracted.</param>
-        /// <param name="subset">The subset name.</param>
-        /// <returns>A list of data samples.</returns>
+        /// <remarks>
+        /// This method assumes the standard LibriSpeech organizational hierarchy: 
+        /// <c>[extractedPath]/LibriSpeech/[subset]/[speaker_id]/[chapter_id]/[speaker_id]-[chapter_id].trans.txt</c> 
+        /// and corresponding <c>*.flac</c> audio files. It parses each transcription file and pairs the audio file paths with their respective transcript strings.
+        /// </remarks>
+        /// <param name="extractedPath">The root directory path where the LibriSpeech dataset structure is located.</param>
+        /// <param name="subset">The specific dataset subset folder to parse (e.g., "train-clean-100").</param>
+        /// <returns>A list of value tuples containing the full system path to the audio file and its matching transcription text.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="extractedPath"/> or <paramref name="subset"/> is null, empty, or consists only of white-space.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown when the resolved subset subdirectory path does not exist on disk.</exception>
+        /// <exception cref="IOException">Thrown when reading files, parsing lines, or exploring directories encounters system-level errors.</exception>
+
         public List<(string AudioFilePath, string Transcript)> LoadDataset(string extractedPath, string subset)
         {
             if (string.IsNullOrWhiteSpace(extractedPath))
@@ -218,10 +262,13 @@ namespace ArborNet.Data.Datasets.LibriSpeech
 
             return samples;
         }
-
         /// <summary>
-        /// Disposes the HttpClient.
+        /// Releases all resources used by the current instance of the <see cref="Download"/> class.
         /// </summary>
+        /// <remarks>
+        /// This method disposes of the underlying <see cref="HttpClient"/> instance to free up network sockets and system resources.
+        /// </remarks>
+
         public void Dispose()
         {
             _httpClient?.Dispose();

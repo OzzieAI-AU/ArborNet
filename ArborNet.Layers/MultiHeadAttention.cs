@@ -1,19 +1,35 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
     /// <summary>
-    /// Implements the Multi-Head Self-Attention mechanism as described in "Attention Is All You Need".
+    /// Implements the Multi-Head Self-Attention (MHA) mechanism as proposed in the seminal paper 
+    /// "Attention Is All You Need" (Vaswani et al., 2017).
     /// </summary>
     /// <remarks>
-    /// This layer linearly projects the input into queries, keys, and values, splits them into multiple heads,
-    /// performs scaled dot-product attention in parallel, concatenates the results, and applies a final output
-    /// projection. All projection matrices are trainable.
+    /// Multi-Head Attention allows the model to jointly attend to information from different representation 
+    /// subspaces at different positions. This is achieved by projecting the queries, keys, and values 
+    /// multiple times with different, learnable linear projections, performing scaled dot-product attention 
+    /// in parallel, concatenating the outputs, and projecting them once more.
     /// </remarks>
+
+    #endregion
+
     public class MultiHeadAttention : BaseLayer
     {
         /// <summary>
@@ -59,12 +75,23 @@ namespace ArborNet.Layers
 
             Wq.RequiresGrad = Wk.RequiresGrad = Wv.RequiresGrad = Wo.RequiresGrad = true;
         }
-
         /// <summary>
-        /// Performs the forward pass of the multi-head attention mechanism.
+        /// Executes the forward pass of the Multi-Head Self-Attention mechanism.
         /// </summary>
-        /// <param name="input">The input tensor of shape (batch_size, sequence_length, dModel).</param>
-        /// <returns>The output tensor of shape (batch_size, sequence_length, dModel).</returns>
+        /// <param name="input">The input tensor of shape (batch_size, sequence_length, <see cref="dModel"/>).</param>
+        /// <returns>An <see cref="ITensor"/> containing the pooled context representation, with shape (batch_size, sequence_length, <see cref="dModel"/>).</returns>
+        /// <remarks>
+        /// This method executes the following steps:
+        /// <list type="number">
+        /// <item><description>Linearly projects the input to generate Queries, Keys, and Values.</description></item>
+        /// <item><description>Reshapes and transposes projections to isolate the individual attention heads.</description></item>
+        /// <item><description>Calculates scaled dot-product attention scores: Softmax((Q * K^T) / sqrt(<see cref="dHead"/>)).</description></item>
+        /// <item><description>Computes the weighted sum of Values based on the attention scores.</description></item>
+        /// <item><description>Transposes, reshapes, and concatenates all head outputs back into <see cref="dModel"/> dimensions.</description></item>
+        /// <item><description>Applies the final linear projection <see cref="Wo"/>.</description></item>
+        /// </list>
+        /// </remarks>
+
         public override ITensor Forward(ITensor input)
         {
             var batch = input.Shape[0];
@@ -82,11 +109,11 @@ namespace ArborNet.Layers
             context = context.Transpose(new[] { 0, 2, 1, 3 }).Reshape(batch, seq, dModel);
             return context.MatMul(Wo);
         }
-
         /// <summary>
-        /// Returns all trainable parameters of this layer.
+        /// Retrieves the collection of all trainable weight parameters associated with this layer.
         /// </summary>
-        /// <returns>An enumerable containing the query, key, value, and output projection weight tensors.</returns>
+        /// <returns>An enumerable sequence of <see cref="ITensor"/> containing the weight matrices for the query, key, value, and output projections.</returns>
+
         public override IEnumerable<ITensor> Parameters()
         {
             yield return Wq; yield return Wk; yield return Wv; yield return Wo;

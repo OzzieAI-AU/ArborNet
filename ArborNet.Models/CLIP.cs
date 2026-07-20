@@ -1,12 +1,26 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Losses;
-using ArborNet.Models;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Losses;
+    using ArborNet.Models;
+    using System.Collections.Generic;
+
+    #endregion
+
     /// <summary>
     /// Implements the CLIP (Contrastive Language-Image Pre-training) model from OpenAI.
     /// Combines a Vision Transformer (ViT) image encoder and a Transformer text encoder
@@ -105,16 +119,17 @@ namespace ArborNet.Models
         /// </remarks>
         public ITensor ComputeContrastiveLoss(ITensor imageEmb, ITensor textEmb)
         {
-            var imgNorm = imageEmb.Divide(imageEmb.Pow(2).Sum(-1).Sqrt().ReshapeWithBroadcast(imageEmb.Shape, -1));
-            var txtNorm = textEmb.Divide(textEmb.Pow(2).Sum(-1).Sqrt().ReshapeWithBroadcast(textEmb.Shape, -1));
+            // FIXED: Rewritten with keepDims: true, avoiding expensive ReshapeWithBroadcast calls
+            var imgNorm = imageEmb.Divide(imageEmb.Pow(2).Sum(-1, keepDims: true).Sqrt());
+            var txtNorm = textEmb.Divide(textEmb.Pow(2).Sum(-1, keepDims: true).Sqrt());
+
             var logits = imgNorm.MatMul(txtNorm.Transpose(new[] { 1, 0 })).Multiply(1f / temperature);
-            
-            // Fixed: Tensor.Arange does not exist. Create labels tensor manually (0 to n-1).
+
             int n = logits.Shape[0];
             float[] labelData = new float[n];
             for (int i = 0; i < n; i++) labelData[i] = i;
             ITensor labels = Tensor.FromArray(labelData, new TensorShape(n), logits.Device);
-            
+
             var loss = new CrossEntropy().Forward(logits, labels);
             return loss;
         }

@@ -1,40 +1,37 @@
-﻿using System;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using System.Collections.Generic;
-using ArborNet.Core.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using System.Collections.Generic;
+    using ArborNet.Core.Layers;
     /// <summary>
-    /// Sinusoidal positional encoding as used in the original Transformer paper.
-    /// Fully implements BaseLayer / ITensor contract.
+    /// Implements a Sinusoidal Positional Encoding layer, typically used in Transformer models.
+    /// This layer injects positional information into input sequence embeddings by adding precomputed 
+    /// wave-based (sine and cosine) patterns.
     /// </summary>
+
+    #endregion
+
     public class PositionalEncoding : BaseLayer
     {
-        /// <summary>
-        /// Pre-computed sinusoidal positional encodings tensor of shape (maxLen, dModel).
-        /// </summary>
-        private readonly ITensor _pe;
-
-        /// <summary>
-        /// Maximum sequence length for which positional encodings were pre-computed.
-        /// </summary>
+        private ITensor _pe;
         private readonly int _maxLen;
-
-        /// <summary>
-        /// Model dimension (embedding size). Must be even.
-        /// </summary>
         private readonly int _dModel;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PositionalEncoding"/> class.
-        /// </summary>
-        /// <param name="dModel">The dimensionality of the embeddings (must be even).</param>
-        /// <param name="maxLen">The maximum sequence length to precompute encodings for (default: 512).</param>
-        /// <param name="device">The device to store the positional encodings on. If null, defaults to CPU.</param>
-        /// <exception cref="ArgumentException">Thrown when <paramref name="dModel"/> is odd.</exception>
         public PositionalEncoding(int dModel, int maxLen = 512, Device device = null)
         {
             if (dModel % 2 != 0)
@@ -57,16 +54,30 @@ namespace ArborNet.Layers
             }
 
             _pe = Tensor.FromArray(data, new TensorShape(maxLen, dModel), device);
+            this.device = device;
         }
-
         /// <summary>
-        /// Adds the corresponding sinusoidal positional encodings to the input tensor.
+        /// Moves the layer, including its internal positional encoding tensor, to the specified target device.
         /// </summary>
-        /// <param name="input">The input tensor. Must have at least 2 dimensions with shape (..., seqLen, dModel).</param>
-        /// <returns>A new tensor containing the input with positional encodings added.</returns>
+        /// <param name="targetDevice">The target hardware device (e.g., CPU or CUDA device).</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="targetDevice"/> is null.</exception>
+
+        public override void To(Device targetDevice)
+        {
+            if (targetDevice == null) throw new ArgumentNullException(nameof(targetDevice));
+            base.To(targetDevice);
+            _pe = _pe.To(targetDevice);
+        }
+        /// <summary>
+        /// Performs the forward pass by adding the positional encodings to the input tensor.
+        /// </summary>
+        /// <param name="input">The input tensor of shape (..., seqLen, dModel).</param>
+        /// <returns>A new tensor with positional encodings added to the input.</returns>
         /// <exception cref="ArgumentException">
-        /// Thrown when the input rank is less than 2 or when the sequence length exceeds the precomputed maximum length.
+        /// Thrown if the input tensor has fewer than 2 dimensions, or if the input sequence length 
+        /// exceeds the maximum supported sequence length (<see cref="_maxLen"/>).
         /// </exception>
+
         public override ITensor Forward(ITensor input)
         {
             var shape = input.Shape;
@@ -77,31 +88,25 @@ namespace ArborNet.Layers
             if (seqLen > _maxLen)
                 throw new ArgumentException($"Sequence length {seqLen} exceeds maximum {_maxLen}");
 
-            // Slice PE to current sequence length
+            if (_pe.Device != input.Device)
+            {
+                _pe = _pe.To(input.Device);
+                this.device = input.Device;
+            }
+
             var peSlice = _pe.Slice((0, seqLen, 1), (0, _dModel, 1));
+            var peReshaped = shape.Rank == 2 ? peSlice : peSlice.Reshape(1, seqLen, _dModel);
 
-            // Broadcast to match input shape (add batch dimension if needed)
-            var targetShape = shape.Rank == 2
-                ? new TensorShape(seqLen, _dModel)
-                : new TensorShape(shape[0], seqLen, _dModel);
-
-            var peBroadcast = peSlice.ReshapeWithBroadcast(targetShape, 0);
-
-            return input.Add(peBroadcast);
+            return input.Add(peReshaped);
         }
-
         /// <summary>
-        /// Returns the positional encoding tensor.
+        /// Returns the parameters of this layer.
         /// </summary>
-        /// <returns>An enumerable containing the positional encoding tensor.</returns>
-        /// <remarks>
-        /// Although positional encodings are fixed (non-trainable) in the classic Transformer,
-        /// they are exposed via the <see cref="BaseLayer.Parameters"/> contract to maintain
-        /// compatibility with optimizers and layer management systems.
-        /// </remarks>
+        /// <returns>An enumerable containing the internal positional encoding tensor.</returns>
+
         public override IEnumerable<ITensor> Parameters()
         {
-            yield return _pe; // positional encodings are learnable in some variants, but usually fixed
+            yield return _pe;
         }
     }
 }

@@ -1,28 +1,90 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
-using System.Text.Json;
-using System.Linq;
-using System.Runtime.InteropServices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Devices;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Core.Serialization
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Text;
+    using System.Text.Json;
+    using System.Linq;
+    using System.Runtime.InteropServices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Devices;
     /// <summary>
     /// Production-grade, zero-allocation native C# implementation of the Hugging Face Safetensors format.
     /// Safely saves and loads weights at direct system I/O speed.
     /// </summary>
+    /// <remarks>
+    /// This static utility class bypasses typical serialization overheads by performing direct memory-casting 
+    /// of floating-point arrays to raw byte spans. The Safetensors format consists of an 8-byte little-endian 
+    /// unsigned integer indicating the header length, followed by a UTF-8 JSON header string detailing 
+    /// metadata (tensor shapes, types, and relative byte offsets), and ends with a contiguous binary payload.
+    /// </remarks>
+
+    #endregion
+
     public static class SafetensorsSerializer
     {
+        /// <summary>
+        /// Represents the metadata structure for an individual tensor within the Safetensors header.
+        /// </summary>
+        /// <remarks>
+        /// This structure mirrors the JSON schema defined by the Hugging Face Safetensors format specification,
+        /// containing critical layout details used to index and slice individual tensors from the trailing binary payload.
+        /// </remarks>
         public class TensorMetadata
         {
+            /// <summary>
+            /// Gets or sets the data type of the tensor elements. Defaults to "F32".
+            /// </summary>
+            /// <value>
+            /// A <see cref="string"/> representing the data format of the tensor. Currently, only "F32" is supported.
+            /// </value>
             public string dtype { get; set; } = "F32";
+            /// <summary>
+            /// Gets or sets the shape dimensions of the tensor.
+            /// </summary>
+            /// <value>
+            /// A <see cref="List{T}"/> of integers representing the size of each dimension in the tensor.
+            /// </value>
+
             public List<int> shape { get; set; } = new();
+            /// <summary>
+            /// Gets or sets the start and end byte offsets of the tensor data within the binary buffer payload.
+            /// </summary>
+            /// <value>
+            /// A <see cref="List{T}"/> containing exactly two <see cref="long"/> values: the zero-based starting 
+            /// byte offset (inclusive) and the ending byte offset (exclusive).
+            /// </value>
+
             public List<long> data_offsets { get; set; } = new();
         }
+        /// <summary>
+        /// Saves a collection of named tensors to a file in the Safetensors format.
+        /// </summary>
+        /// <param name="filePath">The path of the file to write to. Cannot be null or empty.</param>
+        /// <param name="tensors">The dictionary mapping tensor names to their respective <see cref="ITensor"/> objects. Cannot be null.</param>
+        /// <remarks>
+        /// This method creates or overwrites the file at the specified <paramref name="filePath"/> and uses a write-only
+        /// unshared file stream to delegate serialization to <see cref="Save(Stream, Dictionary{string, ITensor})"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> or <paramref name="tensors"/> is null.</exception>
+        /// <exception cref="IOException">Thrown if an I/O error occurs while opening or writing to the file.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown if the caller does not have the required permissions to write to the specified path.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown if the directory specified in <paramref name="filePath"/> does not exist.</exception>
+        /// <exception cref="PathTooLongException">Thrown when the specified path exceeds the system-defined maximum length.</exception>
 
         public static void Save(string filePath, Dictionary<string, ITensor> tensors)
         {
@@ -30,11 +92,39 @@ namespace ArborNet.Core.Serialization
             if (tensors == null) throw new ArgumentNullException(nameof(tensors));
 
             using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+
             Save(fs, tensors);
         }
+        /// <summary>
+        /// Saves a collection of named tensors to the specified stream in the Safetensors format.
+        /// </summary>
+        /// <param name="stream">The output <see cref="Stream"/> to which the tensor data will be written. Must support writing.</param>
+        /// <param name="tensors">The dictionary mapping tensor names to their respective <see cref="ITensor"/> objects. Cannot be null.</param>
+        /// <remarks>
+        /// <para>
+        /// Serialization conforms strictly to the Hugging Face Safetensors specification:
+        /// <list type="number">
+        /// <item><description>Computes metadata offsets and formats the JSON header.</description></item>
+        /// <item><description>Writes an 8-byte little-endian unsigned integer representing the length of the JSON header.</description></item>
+        /// <item><description>Writes the UTF-8 encoded JSON header bytes.</description></item>
+        /// <item><description>Writes the raw contiguous binary payload of all floating-point arrays.</description></item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// High throughput is maintained by writing the raw memory spans of the float arrays directly to the output stream
+        /// via <see cref="MemoryMarshal.AsBytes{T}(ReadOnlySpan{T})"/>, bypassing extra copy operations.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="stream"/> or <paramref name="tensors"/> is null.</exception>
+        /// <exception cref="NotSupportedException">Thrown if the specified <paramref name="stream"/> does not support write operations.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown if the <paramref name="stream"/> is closed or disposed before or during serialization.</exception>
+        /// <exception cref="IOException">Thrown if an I/O error occurs while writing data to the stream.</exception>
 
         public static void Save(Stream stream, Dictionary<string, ITensor> tensors)
         {
+            if (stream == null) throw new ArgumentNullException(nameof(stream));
+            if (tensors == null) throw new ArgumentNullException(nameof(tensors));
+
             var headerDict = new Dictionary<string, TensorMetadata>();
             var binaryBuffers = new List<float[]>();
             long currentOffset = 0;
@@ -78,9 +168,35 @@ namespace ArborNet.Core.Serialization
                 stream.Write(byteSpan);
             }
         }
+        /// <summary>
+        /// Loads a collection of named tensors from the specified stream in Safetensors format.
+        /// </summary>
+        /// <param name="stream">The input <see cref="Stream"/> containing the Safetensors formatted data. Must support reading and seeking.</param>
+        /// <param name="device">The target execution <see cref="Device"/> on which the loaded tensors should be allocated. Defaults to <see cref="Device.CPU"/> if null.</param>
+        /// <returns>A dictionary containing the reconstructed named <see cref="ITensor"/> objects.</returns>
+        /// <remarks>
+        /// <para>
+        /// This method reads the little-endian header length, extracts and parses the UTF-8 JSON metadata schema, 
+        /// and performs seek operations to extract individual tensor segments directly from the stream.
+        /// </para>
+        /// <para>
+        /// Reconstructed tensor buffers are read directly into float arrays via <see cref="MemoryMarshal.AsBytes{T}(Span{T})"/>
+        /// to ensure zero intermediate heap allocations, before being instantiated onto the specified <paramref name="device"/>.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="stream"/> is null.</exception>
+        /// <exception cref="InvalidDataException">
+        /// Thrown when the header size, header JSON structure, or binary data payload is corrupted, incomplete, or fails verification.
+        /// </exception>
+        /// <exception cref="NotSupportedException">
+        /// Thrown when encountering an unsupported tensor data type (anything other than F32), or if the stream does not support read/seek operations.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">Thrown if the <paramref name="stream"/> is closed or disposed before or during deserialization.</exception>
+        /// <exception cref="IOException">Thrown if an I/O error occurs while reading or seeking within the stream.</exception>
 
         public static Dictionary<string, ITensor> Load(Stream stream, Device? device = null)
         {
+            if (stream == null) throw new ArgumentNullException(nameof(stream));
             device ??= Device.CPU;
 
             byte[] headerLengthBytes = new byte[8];
@@ -117,6 +233,21 @@ namespace ArborNet.Core.Serialization
                 long lengthInBytes = end - start;
                 int numElements = (int)(lengthInBytes / sizeof(float));
 
+                //stream.Seek(binaryStartOffset + start, SeekOrigin.Begin);
+
+                //// Zero-Allocation Reading: Direct Buffer-Casting
+                //float[] data = new float[numElements];
+                //Span<float> floatSpan = data;
+                //Span<byte> byteSpan = MemoryMarshal.AsBytes(floatSpan);
+
+                //int bytesRead = stream.Read(byteSpan);
+                //if (bytesRead != byteSpan.Length)
+                //    throw new InvalidDataException($"Incomplete binary payload read for tensor: {name}");
+
+                //var shape = new TensorShape(meta.shape.ToArray());
+                //tensors[name] = Tensor.FromArray(data, shape, device);
+
+                // A safer Implementation:
                 stream.Seek(binaryStartOffset + start, SeekOrigin.Begin);
 
                 // Zero-Allocation Reading: Direct Buffer-Casting
@@ -124,9 +255,8 @@ namespace ArborNet.Core.Serialization
                 Span<float> floatSpan = data;
                 Span<byte> byteSpan = MemoryMarshal.AsBytes(floatSpan);
 
-                int bytesRead = stream.Read(byteSpan);
-                if (bytesRead != byteSpan.Length)
-                    throw new InvalidDataException($"Incomplete binary payload read for tensor: {name}");
+                // GUARANTEED reading of complete byte block sizes
+                stream.ReadExactly(byteSpan);
 
                 var shape = new TensorShape(meta.shape.ToArray());
                 tensors[name] = Tensor.FromArray(data, shape, device);
@@ -134,11 +264,30 @@ namespace ArborNet.Core.Serialization
 
             return tensors;
         }
+        /// <summary>
+        /// Loads a collection of named tensors from a Safetensors file.
+        /// </summary>
+        /// <param name="filePath">The path to the Safetensors file on disk. Cannot be null or empty.</param>
+        /// <param name="device">The target execution <see cref="Device"/> on which the loaded tensors should be allocated. Defaults to <see cref="Device.CPU"/> if null.</param>
+        /// <returns>A dictionary containing the reconstructed named <see cref="ITensor"/> objects.</returns>
+        /// <remarks>
+        /// This method opens the specified file in read-only mode with shared read access and delegates 
+        /// deserialization to <see cref="Load(Stream, Device?)"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null or empty.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when the file specified by <paramref name="filePath"/> does not exist.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown when the path structure leading up to <paramref name="filePath"/> is invalid.</exception>
+        /// <exception cref="IOException">Thrown if an I/O error occurs while opening or reading the file.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown if the caller does not have read permissions for the specified file.</exception>
+        /// <exception cref="InvalidDataException">Thrown when the file header, JSON metadata, or binary payloads are malformed.</exception>
+        /// <exception cref="NotSupportedException">Thrown when encountering an unsupported tensor data type.</exception>
 
         public static Dictionary<string, ITensor> Load(string filePath, Device? device = null)
         {
             if (string.IsNullOrEmpty(filePath)) throw new ArgumentNullException(nameof(filePath));
+
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
             return Load(fs, device);
         }
     }

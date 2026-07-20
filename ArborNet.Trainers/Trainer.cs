@@ -1,17 +1,36 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Trainers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Trainers
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Trainers;
     /// <summary>
     /// Production-grade Trainer for ArborNet models.
     /// Handles full training loop, validation, logging, and LightningModule lifecycle.
     /// Thread-safe, device-aware, and extensible.
     /// </summary>
+    /// <remarks>
+    /// The <see cref="Trainer"/> coordinates the feedforward and backpropagation steps across 
+    /// multiple epochs, managing parameters through an optimizer and registering loss metrics.
+    /// It interfaces with a <see cref="LightningModule"/> to orchestrate training, validation, and testing steps.
+    /// </remarks>
+
+    #endregion
+
     public sealed class Trainer
     {
         /// <summary>
@@ -128,7 +147,6 @@ namespace ArborNet.Trainers
             _module.OnTrainEnd();
             Console.WriteLine("Training completed.");
         }
-
         /// <summary>
         /// Evaluates the model on the provided test data loader.
         /// Computes and logs test loss for each batch without performing gradients or parameter updates.
@@ -138,6 +156,8 @@ namespace ArborNet.Trainers
         /// Assumes data loaders yield batches matching the configured <see cref="_batchSize"/>.
         /// Logs metrics via <c>_module.Log("test_loss", ...)</c>.
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown if <paramref name="testLoader"/> is null during execution.</exception>
+
         public void Test(IEnumerable<(ITensor inputs, ITensor targets)> testLoader)
         {
             int batchIdx = 0;

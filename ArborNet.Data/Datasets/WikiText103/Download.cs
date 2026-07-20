@@ -1,19 +1,37 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Net.Http;
-using System.Threading.Tasks;
-using ArborNet.Data;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data.Datasets.WikiText103
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.IO.Compression;
+    using System.Linq;
+    using System.Net.Http;
+    using System.Threading.Tasks;
+    using ArborNet.Data;
     /// <summary>
-    /// Handles downloading and loading the WikiText-103 dataset for language modeling.
-    /// WikiText-103 is a large-scale language modeling dataset extracted from Wikipedia articles.
-    /// It consists of train, validation, and test splits.
+    /// Provides utility methods to asynchronously download, extract, and load the WikiText-103 dataset 
+    /// for language modeling tasks within the ArborNet machine learning pipeline.
     /// </summary>
+    /// <remarks>
+    /// WikiText-103 is a large-scale language modeling dataset extracted from high-quality, verified 
+    /// Good and Featured articles on Wikipedia. It consists of training, validation, and testing splits, 
+    /// retaining original casing, punctuation, and numbers.
+    /// </remarks>
+
+    #endregion
+
     public static class Download
     {
         /// <summary>
@@ -28,17 +46,21 @@ namespace ArborNet.Data.Datasets.WikiText103
         /// The local directory path (relative to <paramref name="dataDir"/>) where the dataset will be stored.
         /// </summary>
         private const string LocalDirectory = "Datasets/WikiText103";
-
         /// <summary>
-        /// Downloads the WikiText-103 dataset if not already present locally.
+        /// Downloads the compressed WikiText-103 dataset ZIP archive asynchronously if not already present on disk, 
+        /// and extracts its contents to the designated dataset directory.
         /// </summary>
-        /// <param name="dataDir">The base directory to store the dataset.</param>
-        /// <returns>A task representing the asynchronous download operation.</returns>
+        /// <param name="dataDir">The base directory where dataset storage folders are created. Defaults to the current directory (".").</param>
+        /// <returns>A <see cref="Task"/> that represents the asynchronous download and extraction operation.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDir"/> is <see langword="null"/>.</exception>
+        /// <exception cref="HttpRequestException">Thrown when the network request to download the dataset fails.</exception>
+        /// <exception cref="IOException">Thrown when file writing, directory creation, or ZIP extraction fails due to file system issues.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the process lacks permissions to write to the requested file paths.</exception>
         /// <remarks>
-        /// If the extracted directory already exists, the operation returns immediately without downloading.
-        /// The dataset is downloaded using <see cref="HttpClient"/> and extracted using <see cref="ZipFile.ExtractToDirectory(string,string)"/>.
-        /// All intermediate directories are created automatically.
+        /// This method checks for the existence of the expected extracted dataset directory before starting. 
+        /// If the directory exists, it returns immediately to avoid redundant bandwidth consumption.
         /// </remarks>
+
         public static async Task DownloadDatasetAsync(string dataDir = ".")
         {
             string datasetDir = Path.Combine(dataDir, LocalDirectory);
@@ -52,7 +74,6 @@ namespace ArborNet.Data.Datasets.WikiText103
             }
 
             Directory.CreateDirectory(datasetDir);
-
             using (HttpClient client = new HttpClient())
             {
                 Console.WriteLine("Downloading WikiText-103 dataset...");
@@ -65,18 +86,16 @@ namespace ArborNet.Data.Datasets.WikiText103
             ZipFile.ExtractToDirectory(zipPath, datasetDir);
             Console.WriteLine("Extraction complete.");
         }
-
         /// <summary>
-        /// Loads the train split of the WikiText-103 dataset.
+        /// Loads the training split of the WikiText-103 dataset from the local file system.
         /// </summary>
-        /// <param name="dataDir">The base directory where the dataset is stored.</param>
-        /// <returns>A list of strings, where each string is a line from the train file.</returns>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown when the train file <c>wiki.train.tokens</c> does not exist in the expected location.
-        /// </exception>
-        /// <remarks>
-        /// Reads the entire file using <see cref="File.ReadAllLines(string)"/> and converts the result to a <see cref="List{T}"/>.
-        /// </remarks>
+        /// <param name="dataDir">The base directory where the dataset is stored. Defaults to the current directory (".").</param>
+        /// <returns>A <see cref="List{T}"/> of strings containing the raw tokens/lines of the training partition.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDir"/> is <see langword="null"/>.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when the training file <c>wiki.train.tokens</c> cannot be found. Ensure <see cref="DownloadDatasetAsync"/> has run successfully.</exception>
+        /// <exception cref="IOException">Thrown when an I/O error occurs while reading the training file.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the caller does not have read permissions for the file.</exception>
+
         public static List<string> LoadTrain(string dataDir = ".")
         {
             string filePath = Path.Combine(dataDir, LocalDirectory, DatasetName, "wiki.train.tokens");
@@ -87,18 +106,16 @@ namespace ArborNet.Data.Datasets.WikiText103
 
             return File.ReadAllLines(filePath).ToList();
         }
-
         /// <summary>
-        /// Loads the validation split of the WikiText-103 dataset.
+        /// Loads the validation split of the WikiText-103 dataset from the local file system.
         /// </summary>
-        /// <param name="dataDir">The base directory where the dataset is stored.</param>
-        /// <returns>A list of strings, where each string is a line from the validation file.</returns>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown when the validation file <c>wiki.valid.tokens</c> does not exist in the expected location.
-        /// </exception>
-        /// <remarks>
-        /// Reads the entire file using <see cref="File.ReadAllLines(string)"/> and converts the result to a <see cref="List{T}"/>.
-        /// </remarks>
+        /// <param name="dataDir">The base directory where the dataset is stored. Defaults to the current directory (".").</param>
+        /// <returns>A <see cref="List{T}"/> of strings containing the raw tokens/lines of the validation partition.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDir"/> is <see langword="null"/>.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when the validation file <c>wiki.valid.tokens</c> cannot be found. Ensure <see cref="DownloadDatasetAsync"/> has run successfully.</exception>
+        /// <exception cref="IOException">Thrown when an I/O error occurs while reading the validation file.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the caller does not have read permissions for the file.</exception>
+
         public static List<string> LoadValid(string dataDir = ".")
         {
             string filePath = Path.Combine(dataDir, LocalDirectory, DatasetName, "wiki.valid.tokens");
@@ -109,18 +126,16 @@ namespace ArborNet.Data.Datasets.WikiText103
 
             return File.ReadAllLines(filePath).ToList();
         }
-
         /// <summary>
-        /// Loads the test split of the WikiText-103 dataset.
+        /// Loads the testing split of the WikiText-103 dataset from the local file system.
         /// </summary>
-        /// <param name="dataDir">The base directory where the dataset is stored.</param>
-        /// <returns>A list of strings, where each string is a line from the test file.</returns>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown when the test file <c>wiki.test.tokens</c> does not exist in the expected location.
-        /// </exception>
-        /// <remarks>
-        /// Reads the entire file using <see cref="File.ReadAllLines(string)"/> and converts the result to a <see cref="List{T}"/>.
-        /// </remarks>
+        /// <param name="dataDir">The base directory where the dataset is stored. Defaults to the current directory (".").</param>
+        /// <returns>A <see cref="List{T}"/> of strings containing the raw tokens/lines of the testing partition.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDir"/> is <see langword="null"/>.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when the testing file <c>wiki.test.tokens</c> cannot be found. Ensure <see cref="DownloadDatasetAsync"/> has run successfully.</exception>
+        /// <exception cref="IOException">Thrown when an I/O error occurs while reading the testing file.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the caller does not have read permissions for the file.</exception>
+
         public static List<string> LoadTest(string dataDir = ".")
         {
             string filePath = Path.Combine(dataDir, LocalDirectory, DatasetName, "wiki.test.tokens");
@@ -131,19 +146,23 @@ namespace ArborNet.Data.Datasets.WikiText103
 
             return File.ReadAllLines(filePath).ToList();
         }
-
         /// <summary>
-        /// Loads all splits of the WikiText-103 dataset.
+        /// Loads all dataset partitions (Train, Validation, and Test) of the WikiText-103 corpus simultaneously.
         /// </summary>
-        /// <param name="dataDir">The base directory where the dataset is stored.</param>
-        /// <returns>A tuple containing lists for train, validation, and test data.</returns>
-        /// <remarks>
-        /// Convenience method that invokes <see cref="LoadTrain(string)"/>, <see cref="LoadValid(string)"/>, 
-        /// and <see cref="LoadTest(string)"/> and returns the results as a named tuple.
-        /// </remarks>
-        /// <exception cref="FileNotFoundException">
-        /// Thrown if any of the dataset split files are missing.
-        /// </exception>
+        /// <param name="dataDir">The base directory where the dataset is stored. Defaults to the current directory (".").</param>
+        /// <returns>
+        /// A named tuple containing:
+        /// <list type="bullet">
+        /// <item><description><c>Train</c>: A list of strings comprising the training split.</description></item>
+        /// <item><description><c>Valid</c>: A list of strings comprising the validation split.</description></item>
+        /// <item><description><c>Test</c>: A list of strings comprising the testing split.</description></item>
+        /// </list>
+        /// </returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDir"/> is <see langword="null"/>.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when one or more of the token partition files cannot be found locally.</exception>
+        /// <exception cref="IOException">Thrown when an general I/O error occurs accessing any of the files.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when permissions prevent accessing dataset files.</exception>
+
         public static (List<string> Train, List<string> Valid, List<string> Test) LoadAll(string dataDir = ".")
         {
             return (LoadTrain(dataDir), LoadValid(dataDir), LoadTest(dataDir));

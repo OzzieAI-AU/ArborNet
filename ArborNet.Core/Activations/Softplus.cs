@@ -1,36 +1,89 @@
-﻿using System;
-using ArborNet.Core;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Activations
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
     /// <summary>
     /// Implements the Softplus activation function with numerical stability.
-    /// Softplus(x) = log(1 + exp(x)).
-    /// For large x, directly returns x to avoid overflow.
-    /// Full autograd support with correct derivative (sigmoid(x)).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The Softplus activation function is a smooth, continuously differentiable approximation of the rectifier (ReLU) function.
+    /// It is mathematically defined as:
+    /// <c>f(x) = ln(1 + e^x)</c>
+    /// </para>
+    /// <para>
+    /// For large positive values of <c>x</c>, evaluating <c>e^x</c> directly can cause floating-point overflow.
+    /// To ensure numerical stability, this implementation approximates the function as the identity function 
+    /// (<c>f(x) = x</c>) when the input exceeds <see cref="STABILITY_THRESHOLD"/>.
+    /// </para>
+    /// <para>
+    /// This implementation provides full autograd support. The derivative of the Softplus function
+    /// is the logistic sigmoid function:
+    /// <c>f'(x) = 1 / (1 + e^(-x))</c>
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var softplus = new Softplus();
+    /// ITensor input = Tensor.FromArray(new float[] { -1.0f, 0.0f, 25.0f });
+    /// ITensor output = softplus.Forward(input);
+    /// </code>
+    /// </example>
+    /// <seealso cref="BaseActivation"/>
+
+    #endregion
+
     public class Softplus : BaseActivation
     {
         /// <summary>
-        /// Threshold above which the Softplus function is approximated by the identity function
-        /// to prevent numerical overflow in the exponential computation.
+        /// The numerical stability threshold above which the Softplus function is approximated by the identity function.
         /// </summary>
+        /// <remarks>
+        /// This threshold prevents floating-point overflow during the computation of the exponential function.
+        /// For values where <c>x &gt; STABILITY_THRESHOLD</c>, the value of <c>ln(1 + e^x)</c> is mathematically 
+        /// indistinguishable from <c>x</c> in standard single-precision floating-point representation.
+        /// </remarks>
         private const float STABILITY_THRESHOLD = 20.0f;
-
         /// <summary>
-        /// Computes the Softplus activation function on the input tensor using a numerically stable method.
+        /// Computes the forward pass of the Softplus activation function on the input tensor.
         /// </summary>
-        /// <param name="input">The input tensor to apply the activation function to.</param>
-        /// <returns>A tensor containing the result of applying Softplus element-wise.</returns>
+        /// <param name="input">The input <see cref="ITensor"/> to apply the activation function to.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the element-wise Softplus activation values.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <see langword="null"/>.</exception>
         /// <remarks>
-        /// For values greater than <see cref="STABILITY_THRESHOLD"/>, the function returns the input directly
-        /// to avoid overflow. Otherwise it computes <c>log(1 + exp(x))</c>.
-        /// When <see cref="ITensor.RequiresGrad"/> is <see langword="true"/>, a gradient function is attached
-        /// that computes the derivative using the Sigmoid function.
+        /// <para>
+        /// The calculation is split based on the <see cref="STABILITY_THRESHOLD"/>:
+        /// <list type="bullet">
+        /// <item>
+        /// <description>For elements where <c>x &gt; STABILITY_THRESHOLD</c>: <c>y = x</c></description>
+        /// </item>
+        /// <item>
+        /// <description>For elements where <c>x &lt;= STABILITY_THRESHOLD</c>: <c>y = ln(1 + e^x)</c></description>
+        /// </item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// If the input tensor's <see cref="ITensor.RequiresGrad"/> property is set to <see langword="true"/>,
+        /// a custom gradient function is attached to the output tensor's <see cref="ITensor.GradFn"/> property. 
+        /// The backward pass computes the gradient as the element-wise product of the incoming gradient (<c>gradOutput</c>) 
+        /// and the derivative of the Softplus function (which is the element-wise <see cref="Sigmoid"/> of the input tensor).
+        /// </para>
         /// </remarks>
+
         public override ITensor Forward(ITensor input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));

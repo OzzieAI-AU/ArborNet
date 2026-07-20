@@ -1,6 +1,16 @@
-﻿namespace ArborNet.Layers.Fractal
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Layers.Fractal
 {
 
+    #region Using Statements:
 
     using ArborNet.Activations;
     using ArborNet.Core;
@@ -12,15 +22,21 @@
     using System.Collections.Generic;
     using System.Runtime.CompilerServices;
     using System.Threading.Tasks;
-
-
     /// <summary>
-    /// A dense linear projection initialized with Fractal Weights.
-    /// Uses native ArborNet Core operations without Fluent wrappers.
+    /// Represents a fully connected (linear) layer initialized using fractal patterns.
+    /// Supports optional bias tensor addition.
     /// </summary>
+
+    #endregion
     public class FractalLinear : ILayer
     {
+        /// <summary>
+        /// Gets the weight tensor of the linear layer, initialized fractally.
+        /// </summary>
         public ITensor Weights { get; }
+        /// <summary>
+        /// Gets the bias tensor of the linear layer, initialized to zeros.
+        /// </summary>
         public ITensor Bias { get; }
         private readonly bool _useBias;
 
@@ -31,14 +47,18 @@
 
             if (useBias)
             {
-                // Replaced X.Zeros with native Tensor.Zeros
                 Bias = Tensor.Zeros(new TensorShape(outFeatures));
             }
         }
+        /// <summary>
+        /// Performs the forward pass of the linear layer.
+        /// Computes matrix multiplication of input and weights, adding bias if enabled.
+        /// </summary>
+        /// <param name="input">The input tensor.</param>
+        /// <returns>The resulting tensor after projection and optional bias addition.</returns>
 
         public ITensor Forward(ITensor input)
         {
-            // Standard core tensor operations
             var output = input.MatMul(Weights);
             if (_useBias)
             {
@@ -46,6 +66,10 @@
             }
             return output;
         }
+        /// <summary>
+        /// Gets the learnable parameters of the layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the weights and optional bias tensors.</returns>
 
         public IEnumerable<ITensor> Parameters()
         {
@@ -53,10 +77,11 @@
             if (_useBias) yield return Bias;
         }
     }
-
     /// <summary>
-    /// ArborNet ILayer wrapper for Subquadratic Sparse Attention (O(N) Complexity).
+    /// Represents a subquadratic attention layer that computes self-attention 
+    /// with linear complexity relative to the sequence length.
     /// </summary>
+
     public class SubquadraticAttention : ILayer
     {
         private readonly FractalLinear _qProj, _kProj, _vProj, _oProj;
@@ -75,9 +100,21 @@
             _vProj = new FractalLinear(dModel, dModel, initType, false);
             _oProj = new FractalLinear(dModel, dModel, initType, false);
         }
+        /// <summary>
+        /// Feature map applied to Queries and Keys to approximate the softmax attention matrix.
+        /// Ensures non-negative values for linear attention calculations.
+        /// </summary>
+        /// <param name="x">The raw element value.</param>
+        /// <returns>A non-negative projected value.</returns>
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private float FeatureMap(float x) => x > 0f ? x + 1f : MathF.Exp(x);
+        /// <summary>
+        /// Performs the forward pass of the linear layer.
+        /// Computes matrix multiplication of input and weights, adding bias if enabled.
+        /// </summary>
+        /// <param name="input">The input tensor.</param>
+        /// <returns>The resulting tensor after projection and optional bias addition.</returns>
 
         public ITensor Forward(ITensor input)
         {
@@ -89,10 +126,9 @@
             var K_tensor = _kProj.Forward(input);
             var V_tensor = _vProj.Forward(input);
 
-            // Replaced Fluent X.Of() with direct casting to Tensor to access ToArray()
-            float[] Q = ((Tensor)Q_tensor).ToArray();
-            float[] K = ((Tensor)K_tensor).ToArray();
-            float[] V = ((Tensor)V_tensor).ToArray();
+            float[] Q = Q_tensor.ToArray();
+            float[] K = K_tensor.ToArray();
+            float[] V = V_tensor.ToArray();
             float[] Output = new float[Q.Length];
 
             int batchStride = seqLen * _headCount * _headDim;
@@ -152,11 +188,13 @@
                 }
             });
 
-            // Replaced Fluent X.FromArray with native Tensor.FromArray
             var rawOutputTensor = Tensor.FromArray(Output, new TensorShape(batchSize, seqLen, _dModel));
-
             return _oProj.Forward(rawOutputTensor);
         }
+        /// <summary>
+        /// Gets the learnable parameters of the layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the weights and optional bias tensors.</returns>
 
         public IEnumerable<ITensor> Parameters()
         {
@@ -166,11 +204,11 @@
             foreach (var p in _oProj.Parameters()) yield return p;
         }
     }
-
     /// <summary>
-    /// A single block combining Subquadratic Attention and FFN.
-    /// Completely rewritten to use explicit core layer instantiations instead of Fluent chains.
+    /// Represents a complete Transformer block constructed using fractal layers,
+    /// subquadratic attention, layer normalization, and a feed-forward network.
     /// </summary>
+
     public class FractalTransformerBlock : ILayer
     {
         private readonly LayerNorm _norm1;
@@ -183,7 +221,6 @@
 
         public FractalTransformerBlock(int dModel, int dFF, int headCount, FractalType initType)
         {
-            // Explicitly instantiate core layers to avoid Fluent dependencies
             _norm1 = new LayerNorm(new[] { dModel });
             _attention = new SubquadraticAttention(dModel, headCount, initType);
 
@@ -192,15 +229,19 @@
             _gelu = new Gelu();
             _ffn2 = new FractalLinear(dFF, dModel, initType);
         }
+        /// <summary>
+        /// Performs the forward pass of the linear layer.
+        /// Computes matrix multiplication of input and weights, adding bias if enabled.
+        /// </summary>
+        /// <param name="input">The input tensor.</param>
+        /// <returns>The resulting tensor after projection and optional bias addition.</returns>
 
         public ITensor Forward(ITensor input)
         {
-            // 1. Attention Block with residual connection
             var norm1Out = _norm1.Forward(input);
             var attnOut = _attention.Forward(norm1Out);
             var x = input.Add(attnOut);
 
-            // 2. Feed-Forward Block with residual connection
             var norm2Out = _norm2.Forward(x);
             var ff1Out = _ffn1.Forward(norm2Out);
             var geluOut = _gelu.Forward(ff1Out);
@@ -209,13 +250,15 @@
 
             return x;
         }
+        /// <summary>
+        /// Gets the learnable parameters of the layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the weights and optional bias tensors.</returns>
 
         public IEnumerable<ITensor> Parameters()
         {
-            // We must also yield the parameters from the LayerNorms now that they are explicit fields
             foreach (var p in _norm1.Parameters()) yield return p;
             foreach (var p in _attention.Parameters()) yield return p;
-
             foreach (var p in _norm2.Parameters()) yield return p;
             foreach (var p in _ffn1.Parameters()) yield return p;
             foreach (var p in _ffn2.Parameters()) yield return p;

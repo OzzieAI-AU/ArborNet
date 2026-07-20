@@ -2,7 +2,7 @@
   
   C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\CudaBackend>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\nvcc.exe" -gencode=arch=compute_80,code=\"sm_80,compute_80\" --use-local-env -ccbin "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\HostX64\x64" -x cu   -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\include"  -G   --keep-dir x64\Debug  -maxrregcount=0     --machine 64 --compile -cudart hybrid -allow-unsupported-compiler -g  -D_DEBUG -DCUDABACKEND_EXPORTS -D_WINDOWS -D_USRDLL -D_WINDLL -D_UNICODE -DUNICODE -Xcompiler "/EHsc /W3 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/Fdx64\Debug\vc145.pdb" -o "C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\CudaBackend\x64\Debug\kernel.cu.obj" "C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\CudaBackend\kernel.cu" 
   kernel.cu
-  tmpxft_00001b54_00000000-7_kernel.cudafe1.cpp
+  tmpxft_00003614_00000000-7_kernel.cudafe1.cpp
   pch.cpp
      Creating library C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\x64\Debug\cuda_backend.lib and object C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\x64\Debug\cuda_backend.exp
   CudaBackend.vcxproj -> C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\x64\Debug\cuda_backend.dll

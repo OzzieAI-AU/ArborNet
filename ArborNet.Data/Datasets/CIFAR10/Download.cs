@@ -1,22 +1,45 @@
-﻿using System;
-using System.IO;
-using System.Net.Http;
-using System.Threading.Tasks;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data.Datasets.CIFAR10
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.IO;
+    using System.Net.Http;
+    using System.Threading.Tasks;
     /// <summary>
-    /// Provides functionality to download the CIFAR10 dataset.
-    /// CIFAR10 consists of 60,000 32x32 color images in 10 classes (50,000 training, 10,000 test).
-    /// Downloads the binary tar.gz file from the official source.
+    /// Provides utility functionality to download the CIFAR-10 dataset archive from official sources.
     /// </summary>
     /// <remarks>
-    /// This is a static utility class responsible for downloading the official binary 
-    /// distribution of the CIFAR-10 dataset from the University of Toronto.
-    /// The dataset is provided as a single compressed tar.gz archive containing 
-    /// 10 binary batch files (5 training batches and 1 test batch).
-    /// This class only handles the download; extraction and parsing must be performed separately.
+    /// <para>
+    /// The CIFAR-10 dataset consists of 60,000 32x32 color images categorized into 10 mutually exclusive classes.
+    /// The dataset is divided into 50,000 training images and 10,000 test images.
+    /// </para>
+    /// <para>
+    /// This static class manages the remote acquisition of the binary version of the dataset (<c>cifar-10-binary.tar.gz</c>)
+    /// hosted by the University of Toronto. It handles local directory validation, directory creation, and streaming 
+    /// network I/O to safely write the dataset to disk. Extraction and binary parsing are handled by separate components.
+    /// </para>
     /// </remarks>
+    /// <example>
+    /// The following example demonstrates how to call the download utility:
+    /// <code>
+    /// string targetDirectory = "./datasets/cifar10";
+    /// await Download.DownloadDatasetAsync(targetDirectory);
+    /// </code>
+    /// </example>
+
+    #endregion
+
     public static class Download
     {
         /// <summary>
@@ -28,20 +51,41 @@ namespace ArborNet.Data.Datasets.CIFAR10
         /// The filename of the downloaded CIFAR-10 binary archive.
         /// </summary>
         private const string FileName = "cifar-10-binary.tar.gz";
-
         /// <summary>
-        /// Downloads the CIFAR10 dataset asynchronously to the specified destination path.
+        /// Downloads the CIFAR-10 dataset archive asynchronously and saves it to the specified destination path.
         /// </summary>
-        /// <param name="destinationPath">The directory where the dataset file will be saved.</param>
-        /// <returns>A task representing the asynchronous download operation.</returns>
-        /// <exception cref="ArgumentException">Thrown if the destination path is invalid.</exception>
-        /// <exception cref="HttpRequestException">Thrown if the download fails.</exception>
+        /// <param name="destinationPath">The local directory path where the dataset archive will be downloaded and saved.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous download and file write operation.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="destinationPath"/> is null, empty, or consists only of white-space characters.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the application lacks permission to create the target directory or write to the destination file.</exception>
+        /// <exception cref="PathTooLongException">Thrown when the computed destination file path exceeds the system's maximum allowed path length.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown when the specified destination path is invalid or resides on an unmapped drive.</exception>
+        /// <exception cref="IOException">Thrown when an I/O error occurs during directory creation, file writing, or network streaming.</exception>
+        /// <exception cref="HttpRequestException">Thrown when the network request fails, returning a non-successful status code, or during client transmission issues.</exception>
         /// <remarks>
-        /// Creates the destination directory if it does not exist.
-        /// Uses streaming to efficiently download the file without loading it entirely into memory.
-        /// Writes a confirmation message to the console upon successful completion.
-        /// The downloaded file is a tar.gz archive that must be extracted before use.
+        /// <para>
+        /// If the specified <paramref name="destinationPath"/> does not exist, this method will attempt to automatically create
+        /// the directory structure.
+        /// </para>
+        /// <para>
+        /// This method uses <see cref="HttpCompletionOption.ResponseHeadersRead"/> to begin streaming the payload directly to disk. 
+        /// This approach optimizes memory consumption, preventing the entire archive from being loaded into the system's RAM.
+        /// </para>
         /// </remarks>
+        /// <example>
+        /// <code>
+        /// try
+        /// {
+        ///     await Download.DownloadDatasetAsync(@"C:\MLData\CIFAR10\");
+        ///     Console.WriteLine("Download complete.");
+        /// }
+        /// catch (Exception ex)
+        /// {
+        ///     Console.WriteLine($"Download failed: {ex.Message}");
+        /// }
+        /// </code>
+        /// </example>
+
         public static async Task DownloadDatasetAsync(string destinationPath)
         {
             if (string.IsNullOrWhiteSpace(destinationPath))
@@ -55,7 +99,6 @@ namespace ArborNet.Data.Datasets.CIFAR10
             }
 
             string filePath = Path.Combine(destinationPath, FileName);
-
             using (HttpClient client = new HttpClient())
             {
                 try

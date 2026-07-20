@@ -1,12 +1,23 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements the GPT-NeoX decoder-only transformer architecture.
+    /// Represents the GPT-NeoX decoder-only autoregressive transformer architecture.
     /// </summary>
     /// <remarks>
     /// GPT-NeoX is a large-scale autoregressive language model featuring 
@@ -15,6 +26,10 @@ namespace ArborNet.Models
     /// token embeddings, positional encodings, stacked transformer blocks,
     /// and an output projection layer.
     /// </remarks>
+    /// <seealso cref="BaseModel" />
+
+    #endregion
+
     public class GPTNeoX : BaseModel
     {
         /// <summary>
@@ -60,14 +75,16 @@ namespace ArborNet.Models
             foreach (var l in layers) parameters.AddRange(l.Parameters());
             parameters.AddRange(output.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the GPT-NeoX model.
+        /// Performs a forward pass of the GPT-NeoX model, processing the input token tensor through 
+        /// embedding, positional encoding, stacked transformer blocks, and output projection.
         /// </summary>
-        /// <param name="input">Input tensor containing token IDs with shape (batchSize, sequenceLength).</param>
+        /// <param name="input">The input tensor containing token indices of shape <c>(batchSize, sequenceLength)</c>.</param>
         /// <returns>
-        /// Output tensor containing raw logits with shape (batchSize, sequenceLength, vocabSize).
+        /// An <see cref="ITensor"/> containing the calculated logits for each vocabulary token, 
+        /// with shape <c>(batchSize, sequenceLength, vocabSize)</c>.
         /// </returns>
+
         public override ITensor Forward(ITensor input)
         {
             var x = embedding.Forward(input);

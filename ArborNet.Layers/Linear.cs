@@ -1,20 +1,43 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Functional;
-using ArborNet.Core.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Functional;
+    using ArborNet.Core.Layers;
+    /// <summary>
+    /// Represents a fully connected (dense) linear layer in a neural network.
+    /// Applies a linear transformation to the incoming data: <c>y = xW + b</c>.
+    /// </summary>
+    /// <remarks>
+    /// This layer maintains a weight matrix and a bias vector. The weights are initialized 
+    /// using Xavier (Glorot) Uniform initialization, and the biases are initialized to zero.
+    /// It automatically registers backward computation pathways (gradients) for autograd execution.
+    /// </remarks>
+
+    #endregion
+
     public class Linear : BaseLayer
     {
         private ITensor weight;
         private ITensor bias;
-        private readonly Device device;
+        // FIXED: Removed 'private readonly Device device;' to prevent hiding BaseLayer.device
 
-        public Linear(int inFeatures, int outFeatures, Device device = null)
+        public Linear(int inFeatures, int outFeatures, Device? device = null)
         {
             this.device = device ?? Device.CPU;
             weight = Initializers.XavierUniform(new TensorShape(inFeatures, outFeatures), this.device);
@@ -22,6 +45,13 @@ namespace ArborNet.Layers
             weight.RequiresGrad = true;
             bias.RequiresGrad = true;
         }
+        /// <summary>
+        /// Performs the forward pass of the linear layer by computing the matrix multiplication of the input 
+        /// with the weights, then adding the bias.
+        /// </summary>
+        /// <param name="input">The input tensor of shape <c>(batchSize, inFeatures)</c>.</param>
+        /// <returns>The computed output tensor of shape <c>(batchSize, outFeatures)</c>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <see langword="null"/>.</exception>
 
         public override ITensor Forward(ITensor input)
         {
@@ -62,23 +92,12 @@ namespace ArborNet.Layers
                     return gradInput ?? gradOutput;
                 };
             }
-
             return output;
         }
-
-        private void AccumulateGrad(ITensor currentGrad, ITensor delta, Action<ITensor> setter)
-        {
-            if (delta == null) return;
-
-            if (currentGrad == null)
-            {
-                setter(delta.Clone());
-            }
-            else
-            {
-                setter(currentGrad.Add(delta));
-            }
-        }
+        /// <summary>
+        /// Retrieves the learnable parameters of this linear layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the weight and bias tensors.</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

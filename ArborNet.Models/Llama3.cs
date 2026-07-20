@@ -1,18 +1,33 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements the Llama 3 decoder-only transformer language model.
+    /// Implements the Llama 3 decoder-only transformer language model architecture.
     /// </summary>
     /// <remarks>
-    /// This model consists of token embeddings, a stack of transformer blocks,
-    /// final layer normalization, and a linear language modeling head.
-    /// It inherits parameter management and base functionality from <see cref="BaseModel"/>.
+    /// This model consists of token embeddings, a stack of decoder-only transformer blocks,
+    /// a final layer normalization, and a linear language modeling head.
+    /// It inherits parameter management, weight tracking, and serialization functionality from <see cref="BaseModel"/>.
     /// </remarks>
+    /// <seealso cref="BaseModel"/>
+
+    #endregion
+
     public class Llama3 : BaseModel
     {
         /// <summary>
@@ -58,12 +73,29 @@ namespace ArborNet.Models
             parameters.AddRange(norm.Parameters());
             parameters.AddRange(head.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the Llama 3 model.
+        /// Executes the forward pass of the Llama 3 model, processing input token IDs to compute output logits.
         /// </summary>
-        /// <param name="input">The input tensor containing token indices. Expected shape is (batchSize, sequenceLength).</param>
-        /// <returns>The output logits tensor with shape (batchSize, sequenceLength, vocabSize).</returns>
+        /// <param name="input">The input tensor containing token IDs. Expected shape is <c>(batchSize, sequenceLength)</c>.</param>
+        /// <returns>A tensor containing the unnormalized prediction scores (logits) for each token in the vocabulary. Shape is <c>(batchSize, sequenceLength, vocabSize)</c>.</returns>
+        /// <remarks>
+        /// The tensor transformations flow as follows:
+        /// <list type="number">
+        /// <item>
+        /// <description>Tokens are converted to dense representations: <c>(batchSize, sequenceLength) -> (batchSize, sequenceLength, hiddenSize)</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>Representations pass sequentially through all <paramref name="layers"/>: <c>(batchSize, sequenceLength, hiddenSize)</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>The sequence output is normalized: <c>(batchSize, sequenceLength, hiddenSize)</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>The linear head projects representations to logits: <c>(batchSize, sequenceLength, vocabSize)</c>.</description>
+        /// </item>
+        /// </list>
+        /// </remarks>
+
         public override ITensor Forward(ITensor input)
         {
             var x = tokenEmbedding.Forward(input);

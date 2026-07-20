@@ -1,11 +1,25 @@
-﻿using System;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Functional;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Functional;
+
+    #endregion
+
     /// <summary>
     /// Provides common image transformation operations for tensors.
     /// All methods assume 4D image tensors with shape [batch, channels, height, width].
@@ -22,27 +36,46 @@ namespace ArborNet.Data
         /// </summary>
         Bilinear
     }
-
     /// <summary>
-    /// Provides static utility methods for common geometric transformations on image tensors.
+    /// Provides high-performance static utility methods for spatial, geometric, and data augmentation transformations 
+    /// on multi-dimensional image tensors.
     /// </summary>
     /// <remarks>
-    /// All operations work with 4D tensors of shape [batch, channels, height, width].
-    /// Methods are functional and do not modify the input tensor, returning new tensor instances instead.
+    /// <para>
+    /// All operations in this class expect 4-dimensional tensors conforming to the NCHW channel layout:
+    /// <list type="bullet">
+    /// <item><description><b>N (Batch):</b> Represents the batch size.</description></item>
+    /// <item><description><b>C (Channels):</b> Represents color channels (e.g., RGB, Grayscale, or feature maps).</description></item>
+    /// <item><description><b>H (Height):</b> Represents the vertical spatial dimension.</description></item>
+    /// <item><description><b>W (Width):</b> Represents the horizontal spatial dimension.</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// The methods are pure functions and do not mutate the input tensor. Instead, they allocate and return 
+    /// a new <see cref="ITensor"/> containing the transformed data on the same execution device.
+    /// </para>
     /// </remarks>
+
     public static class Transforms
     {
         /// <summary>
-        /// Resizes a 4D tensor [batch, channels, height, width] using nearest-neighbor or bilinear interpolation.
+        /// Resizes a 4D image tensor of shape <c>[batch, channels, height, width]</c> to a new spatial resolution.
         /// </summary>
-        /// <param name="input">The input 4D tensor to be resized.</param>
-        /// <param name="newHeight">The target height of the output tensor.</param>
-        /// <param name="newWidth">The target width of the output tensor.</param>
-        /// <param name="mode">The interpolation mode to use during resizing.</param>
-        /// <returns>A new <see cref="ITensor"/> containing the resized data with shape [batch, channels, newHeight, newWidth].</returns>
-        /// <exception cref="ArgumentException">Thrown if the input tensor is not 4-dimensional or if newHeight/newWidth are not positive.</exception>
+        /// <param name="input">The source 4D tensor to be resized.</param>
+        /// <param name="newHeight">The target spatial height of the output tensor. Must be greater than zero.</param>
+        /// <param name="newWidth">The target spatial width of the output tensor. Must be greater than zero.</param>
+        /// <param name="mode">The interpolation method to apply. Defaults to <see cref="InterpolationMode.Bilinear"/>.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the resized data with the shape <c>[batch, channels, newHeight, newWidth]</c> on the same device.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown if the <paramref name="input"/> tensor does not have exactly 4 dimensions, 
+        /// or if <paramref name="newHeight"/> or <paramref name="newWidth"/> are less than or equal to zero.
+        /// </exception>
+        /// <remarks>
+        /// Supports <see cref="InterpolationMode.Nearest"/> for discrete, fast pixel replication and 
+        /// <see cref="InterpolationMode.Bilinear"/> for smooth continuous coordinate mapping using 2D bilinear weights.
+        /// </remarks>
         public static ITensor Resize(ITensor input, int newHeight, int newWidth,
-            InterpolationMode mode = InterpolationMode.Bilinear)
+    InterpolationMode mode = InterpolationMode.Bilinear)
         {
             if (input.Shape.Rank != 4)
                 throw new ArgumentException("Input must be a 4D tensor [batch, channels, height, width].");
@@ -119,13 +152,17 @@ namespace ArborNet.Data
 
             return Ops.FromArray(outputData, outputShape, input.Device);
         }
-
         /// <summary>
-        /// Flips the tensor horizontally (left-right).
+        /// Flips the spatial width dimension of a 4D image tensor horizontally (left-to-right mirror effect).
         /// </summary>
-        /// <param name="input">The input 4D image tensor.</param>
-        /// <returns>A new <see cref="ITensor"/> with the same shape as the input but with horizontal flipping applied to each image.</returns>
-        /// <remarks>This operation is performed per batch and channel independently.</remarks>
+        /// <param name="input">The source 4-dimensional tensor of shape <c>[batch, channels, height, width]</c> to flip.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the horizontally flipped image data, retaining the original shape and execution device.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the <paramref name="input"/> tensor does not have exactly 4 dimensions.</exception>
+        /// <remarks>
+        /// This operation maps index <c>x</c> in the width dimension to <c>width - 1 - x</c> for all batches, channels, and heights.
+        /// </remarks>
+
         public static ITensor FlipHorizontal(ITensor input)
         {
             if (input.Shape.Rank != 4)
@@ -152,13 +189,17 @@ namespace ArborNet.Data
 
             return Ops.FromArray(result, shape, input.Device);
         }
-
         /// <summary>
-        /// Flips the tensor vertically (up-down).
+        /// Flips the spatial height dimension of a 4D image tensor vertically (upside-down mirror effect).
         /// </summary>
-        /// <param name="input">The input 4D image tensor.</param>
-        /// <returns>A new <see cref="ITensor"/> with the same shape as the input but with vertical flipping applied to each image.</returns>
-        /// <remarks>This operation is performed per batch and channel independently.</remarks>
+        /// <param name="input">The source 4-dimensional tensor of shape <c>[batch, channels, height, width]</c> to flip.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the vertically flipped image data, retaining the original shape and execution device.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the <paramref name="input"/> tensor does not have exactly 4 dimensions.</exception>
+        /// <remarks>
+        /// This operation maps index <c>y</c> in the height dimension to <c>height - 1 - y</c> for all batches, channels, and widths.
+        /// </remarks>
+
         public static ITensor FlipVertical(ITensor input)
         {
             if (input.Shape.Rank != 4)
@@ -185,15 +226,19 @@ namespace ArborNet.Data
 
             return Ops.FromArray(result, shape, input.Device);
         }
-
         /// <summary>
-        /// Rotates the tensor 90 degrees (clockwise or counterclockwise).
-        /// Output shape becomes [batch, channels, oldWidth, oldHeight].
+        /// Rotates the spatial dimensions of a 4D image tensor by 90 degrees either clockwise or counter-clockwise.
         /// </summary>
-        /// <param name="input">The input 4D image tensor.</param>
-        /// <param name="clockwise">If <c>true</c>, rotates the image 90 degrees clockwise; otherwise rotates counterclockwise.</param>
-        /// <returns>A new <see cref="ITensor"/> containing the rotated images. Height and width dimensions are swapped.</returns>
-        /// <remarks>The rotation is applied to each image in the batch independently.</remarks>
+        /// <param name="input">The source 4-dimensional tensor of shape <c>[batch, channels, height, width]</c> to rotate.</param>
+        /// <param name="clockwise">If set to <see langword="true"/>, rotates 90 degrees clockwise; if <see langword="false"/>, rotates 90 degrees counter-clockwise. Defaults to <see langword="true"/>.</param>
+        /// <returns>A new <see cref="ITensor"/> with spatial dimensions transposed, resulting in an output shape of <c>[batch, channels, width, height]</c>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the <paramref name="input"/> tensor does not have exactly 4 dimensions.</exception>
+        /// <remarks>
+        /// This operation swaps the vertical (height) and horizontal (width) dimensions of the tensor, altering the output shape. 
+        /// It operates on each channel and batch slice independently.
+        /// </remarks>
+
         public static ITensor Rotate90(ITensor input, bool clockwise = true)
         {
             if (input.Shape.Rank != 4)
@@ -237,22 +282,24 @@ namespace ArborNet.Data
 
             return Ops.FromArray(result, outputShape, input.Device);
         }
-
         /// <summary>
-        /// Applies random augmentations (horizontal flip, vertical flip, and 0-3 rotations of 90°).
+        /// Applies random spatial data augmentations to an input 4D image tensor, including horizontal and vertical flips, as well as discrete 90-degree rotations.
         /// </summary>
-        /// <param name="input">The input 4D tensor to augment.</param>
-        /// <param name="random">An optional <see cref="Random"/> instance to use for randomness. 
-        /// If <c>null</c>, a new <see cref="Random"/> instance will be created.</param>
-        /// <returns>A new <see cref="ITensor"/> with randomly applied augmentations.</returns>
+        /// <param name="input">The source 4-dimensional tensor of shape <c>[batch, channels, height, width]</c> to augment.</param>
+        /// <param name="random">An optional pseudorandom number generator instance of <see cref="Random"/>. If <see langword="null"/>, a default thread-safe instance is created internally.</param>
+        /// <returns>A new <see cref="ITensor"/> representing the augmented image, which may have transposed spatial dimensions if a non-zero rotation was applied.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the <paramref name="input"/> tensor does not have exactly 4 dimensions (propagated from called methods).</exception>
         /// <remarks>
-        /// The augmentations are applied sequentially in the following order:
-        /// <list type="bullet">
-        ///   <item>50% chance of horizontal flip</item>
-        ///   <item>50% chance of vertical flip</item>
-        ///   <item>0-3 clockwise 90-degree rotations (chosen randomly)</item>
+        /// The pipeline executes the following sequential random transformations:
+        /// <list type="number">
+        /// <item><description><b>Horizontal Flip:</b> Evaluates a 50% probability to apply <see cref="FlipHorizontal"/>.</description></item>
+        /// <item><description><b>Vertical Flip:</b> Evaluates a 50% probability to apply <see cref="FlipVertical"/>.</description></item>
+        /// <item><description><b>90-Degree Rotations:</b> Applies clockwise rotations 0, 1, 2, or 3 times based on an even probability distribution using <see cref="Rotate90"/>.</description></item>
         /// </list>
+        /// This method is highly suited for training neural network pipelines to enforce spatial invariance.
         /// </remarks>
+
         public static ITensor Augment(ITensor input, Random? random = null)
         {
             random ??= new Random();

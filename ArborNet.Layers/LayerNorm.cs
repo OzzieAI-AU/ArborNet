@@ -1,11 +1,23 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
-using System;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers.Normalization;
+    using System;
+    using System.Collections.Generic;
     /// <summary>
     /// Implements Layer Normalization (LayerNorm) as introduced in the paper 
     /// "Layer Normalization" by Jimmy Lei Ba et al. (2016).
@@ -21,89 +33,63 @@ namespace ArborNet.Layers
     /// normalized = (input - mean) / sqrt(variance + eps)
     /// output = gamma * normalized + beta
     /// </code>
-    /// where mean and variance are calculated over the dimensions specified by <see cref="normalizedShape"/>.
+    /// where mean and variance are calculated over the dimensions specified by normalizedShape.
     /// </remarks>
-    public class LayerNorm : BaseLayer
+
+    #endregion
+
+    public class LayerNorm : BaseNormalization
     {
+        public LayerNorm(int[] normalizedShape, float eps = 1e-5f, bool useAffine = true)
+            : base(new TensorShape(normalizedShape).TotalElements, eps, useAffine) { }
         /// <summary>
-        /// The learnable scale (gain) parameter.
-        /// </summary>
-        private readonly ITensor gamma;
-
-        /// <summary>
-        /// The learnable bias (shift) parameter.
-        /// </summary>
-        private readonly ITensor beta;
-
-        /// <summary>
-        /// Small constant added to the variance for numerical stability.
-        /// </summary>
-        private readonly float eps;
-
-        /// <summary>
-        /// The shape of the dimensions over which normalization is performed.
-        /// </summary>
-        private readonly int[] normalizedShape;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="LayerNorm"/> class.
-        /// </summary>
-        /// <param name="normalizedShape">The shape of the features to normalize over.</param>
-        /// <param name="eps">A small value added to the variance to prevent division by zero.</param>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="normalizedShape"/> is <see langword="null"/>.</exception>
-        public LayerNorm(int[] normalizedShape, float eps = 1e-5f)
-        {
-            this.normalizedShape = normalizedShape ?? throw new ArgumentNullException(nameof(normalizedShape));
-            this.eps = eps;
-
-            gamma = Tensor.Ones(new TensorShape(normalizedShape));
-            beta = Tensor.Zeros(new TensorShape(normalizedShape));
-
-            gamma.RequiresGrad = true;
-            beta.RequiresGrad = true;
-        }
-
-        /// <summary>
-        /// Performs the forward pass of layer normalization on the input tensor.
-        /// Features robust dimension recovery and broadcasting alignment.
+        /// Performs the forward pass normalization of the input tensor across the designated feature dimensions.
         /// </summary>
         /// <param name="input">The input tensor to be normalized.</param>
-        /// <returns>
-        /// A tensor with the same shape as <paramref name="input"/> containing the 
-        /// layer-normalized values with the learned affine transformation applied.
-        /// </returns>
-        public override ITensor Forward(ITensor input)
+        /// <returns>A new <see cref="ITensor"/> containing the normalized elements.</returns>
+        /// <remarks>
+        /// This method calculates the mean and variance along the last dimension of the input tensor,
+        /// then standardizes the tensor using these statistics adjusted by the epsilon value.
+        /// </remarks>
+
+        protected override ITensor Normalize(ITensor input)
         {
-            if (input == null) throw new ArgumentNullException(nameof(input));
-
-            if (input.Shape.Rank == 0)
-                throw new ArgumentException("Input tensor must have at least 1 dimension to perform LayerNorm.");
-
-            try
-            {
-                // keepDims: true ensures [16, 64] -> Mean(-1) becomes [16, 1], perfectly broadcasting back to [16, 64]
-                var mean = input.Mean(-1, keepDims: true);
-                var variance = input.Subtract(mean).Pow(2f).Mean(-1, keepDims: true);
-                var std = variance.Add(Tensor.FromScalar(eps)).Sqrt();
-
-                var normalized = input.Subtract(mean).Divide(std);
-                return normalized.Multiply(gamma).Add(beta);
-            }
-            catch (Exception ex)
-            {
-                // Resilient failure: catch broadcast/dimension mismatches and provide explicit context
-                throw new InvalidOperationException($"Dimension alignment failed during LayerNorm forward pass. Verify input shape matches expected normalized shape. Inner Error: {ex.Message}", ex);
-            }
+            // FIXED: Added keepDims: true to avoid shape mismatch crashes during broadcasting
+            var mean = input.Mean(-1, keepDims: true);
+            var var_ = input.Subtract(mean).Pow(2).Mean(-1, keepDims: true);
+            var std = var_.Add(Eps).Sqrt();
+            return input.Subtract(mean).Divide(std);
         }
-
         /// <summary>
-        /// Returns the trainable parameters of this layer.
+        /// Computes the gradient of the loss with respect to the input tensor during the backward pass.
         /// </summary>
-        /// <returns>An enumerable containing the <see cref="gamma"/> and <see cref="beta"/> tensors.</returns>
-        public override IEnumerable<ITensor> Parameters()
+        /// <param name="input">The original input tensor from the forward pass.</param>
+        /// <param name="gradOutput">The gradient of the loss with respect to the output of this layer.</param>
+        /// <returns>A new <see cref="ITensor"/> representing the gradient of the loss with respect to the input.</returns>
+        /// <remarks>
+        /// This method implements the standard analytical backward pass derivative for Layer Normalization,
+        /// propagating the incoming gradients back through the mean and variance computations.
+        /// </remarks>
+
+        protected override ITensor ComputeGradInput(ITensor input, ITensor gradOutput)
         {
-            yield return gamma;
-            yield return beta;
+            // FIXED: Standard stable analytical LayerNorm gradient calculation
+            var mean = input.Mean(-1, keepDims: true);
+            var var_ = input.Subtract(mean).Pow(2).Mean(-1, keepDims: true);
+            var std = var_.Add(Eps).Sqrt();
+            var normalized = input.Subtract(mean).Divide(std);
+
+            var N = Tensor.FromScalar((float)input.Shape[input.Shape.Rank - 1], input.Device);
+            var ivar = std.Pow(-1);
+
+            var gradNorm = gradOutput.Multiply(UseAffine ? Gamma : Tensor.Ones(input.Shape, input.Device));
+
+            var sum_gradNorm = gradNorm.Sum(-1, keepDims: true);
+            var sum_gradNorm_norm = gradNorm.Multiply(normalized).Sum(-1, keepDims: true);
+
+            return gradNorm.Subtract(sum_gradNorm.Divide(N))
+                           .Subtract(normalized.Multiply(sum_gradNorm_norm.Divide(N)))
+                           .Multiply(ivar);
         }
     }
 }

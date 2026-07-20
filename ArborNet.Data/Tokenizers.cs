@@ -1,11 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.IO;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Text;
+    using System.IO;
+
+    #endregion
+
     /// <summary>
     /// Interface for tokenizers that encode text to tokens and decode tokens back to text.
     /// </summary>
@@ -17,63 +31,41 @@ namespace ArborNet.Data
         /// <param name="text">The input text to tokenize.</param>
         /// <returns>A list of integer token IDs.</returns>
         List<int> Encode(string text);
-
         /// <summary>
         /// Decodes a list of token IDs back into text.
         /// </summary>
         /// <param name="tokens">The list of token IDs to decode.</param>
         /// <returns>The decoded text string.</returns>
+
         string Decode(List<int> tokens);
     }
-
     /// <summary>
     /// Implements Byte-Pair Encoding (BPE) tokenizer.
     /// BPE iteratively merges the most frequent pairs of bytes or subwords in the vocabulary.
     /// </summary>
+
     public class BpeTokenizer : ITokenizer
     {
-        /// <summary>
-        /// Vocabulary dictionary mapping subword tokens to their corresponding integer IDs.
-        /// </summary>
         private readonly Dictionary<string, int> vocab;
-
-        /// <summary>
-        /// Ordered list of merge operations. Each tuple represents a pair of tokens 
-        /// to be merged, in the order of priority.
-        /// </summary>
+        private readonly Dictionary<int, string> reverseVocab; // O(1) Cache
         private readonly List<(string, string)> merges;
-
-        /// <summary>
-        /// The string representation of the unknown token.
-        /// </summary>
         private readonly string unkToken;
-
-        /// <summary>
-        /// The integer ID assigned to the unknown token.
-        /// </summary>
         private readonly int unkId;
 
-        /// <summary>
-        /// Initializes a new instance of the BpeTokenizer.
-        /// </summary>
-        /// <param name="vocabFilePath">Path to the vocabulary file (key-value pairs of subword to ID).</param>
-        /// <param name="mergesFilePath">Path to the merges file (list of pairs to merge).</param>
-        /// <param name="unkToken">Unknown token string.</param>
-        /// <param name="unkId">Unknown token ID.</param>
         public BpeTokenizer(string vocabFilePath, string mergesFilePath, string unkToken = "<unk>", int unkId = 0)
         {
             this.unkToken = unkToken;
             this.unkId = unkId;
             vocab = LoadVocab(vocabFilePath);
             merges = LoadMerges(mergesFilePath);
+            reverseVocab = vocab.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
         }
-
         /// <summary>
-        /// Loads the vocabulary from a file where each line contains a token 
-        /// followed by its ID, separated by a space.
+        /// Loads the vocabulary dictionary from the specified file path.
         /// </summary>
-        /// <param name="filePath">The path to the vocabulary file.</param>
-        /// <returns>A dictionary mapping tokens to their IDs.</returns>
+        /// <param name="filePath">The file path to read the vocabulary from.</param>
+        /// <returns>A dictionary containing the parsed vocabulary pairs.</returns>
+
         private Dictionary<string, int> LoadVocab(string filePath)
         {
             var vocabDict = new Dictionary<string, int>();
@@ -87,16 +79,16 @@ namespace ArborNet.Data
             }
             return vocabDict;
         }
-
         /// <summary>
-        /// Loads the merge rules from a file. The first line is skipped as it is assumed to be a header.
+        /// Loads BPE merge operations from the specified file path.
         /// </summary>
-        /// <param name="filePath">The path to the merges file.</param>
-        /// <returns>A list of merge pairs in the order they should be applied.</returns>
+        /// <param name="filePath">The file path to read the merge rules from.</param>
+        /// <returns>A list of tuples representing pairs of tokens to be merged.</returns>
+
         private List<(string, string)> LoadMerges(string filePath)
         {
             var mergesList = new List<(string, string)>();
-            foreach (var line in File.ReadAllLines(filePath).Skip(1)) // Skip header
+            foreach (var line in File.ReadAllLines(filePath).Skip(1))
             {
                 var parts = line.Split(' ');
                 if (parts.Length == 2)
@@ -106,12 +98,12 @@ namespace ArborNet.Data
             }
             return mergesList;
         }
-
         /// <summary>
-        /// Encodes the input text using BPE.
+        /// Encodes the input text into a list of token IDs.
         /// </summary>
-        /// <param name="text">The input text.</param>
-        /// <returns>List of token IDs.</returns>
+        /// <param name="text">The input text to tokenize.</param>
+        /// <returns>A list of integer token IDs.</returns>
+
         public List<int> Encode(string text)
         {
             var words = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -139,13 +131,12 @@ namespace ArborNet.Data
 
             return tokens;
         }
-
         /// <summary>
-        /// Splits a word into a list of individual characters to serve as the initial subwords 
-        /// for the BPE merging process.
+        /// Performs initial tokenization on a word, splitting it into its constituent character strings.
         /// </summary>
         /// <param name="word">The word to pre-tokenize.</param>
-        /// <returns>A list of single-character strings.</returns>
+        /// <returns>A list of single-character strings representing the individual characters of the word.</returns>
+
         private List<string> PreTokenize(string word)
         {
             var subwords = new List<string>();
@@ -155,14 +146,13 @@ namespace ArborNet.Data
             }
             return subwords;
         }
-
         /// <summary>
-        /// Applies a single merge operation to the list of subwords by combining 
-        /// adjacent matching pairs.
+        /// Applies a BPE merge rule to a list of subwords, combining matching adjacent pairs.
         /// </summary>
-        /// <param name="subwords">The current list of subwords.</param>
-        /// <param name="merge">The pair of subwords that should be merged.</param>
-        /// <returns>A new list of subwords with the merge applied where possible.</returns>
+        /// <param name="subwords">The list of subwords currently being processed.</param>
+        /// <param name="merge">A tuple representing the pair of subwords that should be merged.</param>
+        /// <returns>A new list of subwords with the specified merge rule applied.</returns>
+
         private List<string> ApplyMerge(List<string> subwords, (string, string) merge)
         {
             var result = new List<string>();
@@ -182,58 +172,43 @@ namespace ArborNet.Data
             }
             return result;
         }
-
         /// <summary>
-        /// Decodes the list of token IDs back to text.
+        /// Decodes a list of token IDs back into text.
         /// </summary>
-        /// <param name="tokens">List of token IDs.</param>
-        /// <returns>The decoded text.</returns>
+        /// <param name="tokens">The list of token IDs to decode.</param>
+        /// <returns>The decoded text string.</returns>
+
         public string Decode(List<int> tokens)
         {
             var subwords = new List<string>();
             foreach (var token in tokens)
             {
-                var subword = vocab.FirstOrDefault(kvp => kvp.Value == token).Key ?? unkToken;
-                subwords.Add(subword);
+                if (reverseVocab.TryGetValue(token, out var subword))
+                {
+                    subwords.Add(subword);
+                }
+                else
+                {
+                    subwords.Add(unkToken);
+                }
             }
             return string.Join("", subwords);
         }
     }
-
     /// <summary>
     /// Implements a simplified SentencePiece tokenizer based on Unigram model.
     /// SentencePiece tokenizes text into subwords using a pre-trained model.
     /// This implementation assumes a vocabulary file with subwords and their scores.
     /// </summary>
+
     public class SentencePieceTokenizer : ITokenizer
     {
-        /// <summary>
-        /// Maps subword pieces to their corresponding integer token IDs.
-        /// </summary>
         private readonly Dictionary<string, int> vocab;
-
-        /// <summary>
-        /// Maps subword pieces to their associated scores (loaded for completeness 
-        /// but not used in the current simplified greedy implementation).
-        /// </summary>
+        private readonly Dictionary<int, string> reverseVocab; // O(1) Cache
         private readonly Dictionary<string, double> scores;
-
-        /// <summary>
-        /// The string representation of the unknown token.
-        /// </summary>
         private readonly string unkToken;
-
-        /// <summary>
-        /// The integer ID for the unknown token.
-        /// </summary>
         private readonly int unkId;
 
-        /// <summary>
-        /// Initializes a new instance of the SentencePieceTokenizer.
-        /// </summary>
-        /// <param name="modelFilePath">Path to the SentencePiece model file (subword to ID and score).</param>
-        /// <param name="unkToken">Unknown token string.</param>
-        /// <param name="unkId">Unknown token ID.</param>
         public SentencePieceTokenizer(string modelFilePath, string unkToken = "<unk>", int unkId = 0)
         {
             this.unkToken = unkToken;
@@ -241,13 +216,13 @@ namespace ArborNet.Data
             vocab = new Dictionary<string, int>();
             scores = new Dictionary<string, double>();
             LoadModel(modelFilePath);
+            reverseVocab = vocab.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
         }
-
         /// <summary>
-        /// Loads the SentencePiece model from a file. Each line is expected to be 
-        /// tab-separated containing ID, subword, and optionally a score.
+        /// Loads the SentencePiece model, parsing vocabulary, identifiers, and scores.
         /// </summary>
-        /// <param name="filePath">Path to the model file.</param>
+        /// <param name="filePath">The file path to load the model configurations from.</param>
+
         private void LoadModel(string filePath)
         {
             foreach (var line in File.ReadAllLines(filePath))
@@ -263,12 +238,12 @@ namespace ArborNet.Data
                 }
             }
         }
-
         /// <summary>
-        /// Encodes the input text using SentencePiece (simplified greedy decoding).
+        /// Encodes the input text into a list of token IDs.
         /// </summary>
-        /// <param name="text">The input text.</param>
-        /// <returns>List of token IDs.</returns>
+        /// <param name="text">The input text to tokenize.</param>
+        /// <returns>A list of integer token IDs.</returns>
+
         public List<int> Encode(string text)
         {
             var tokens = new List<int>();
@@ -295,19 +270,25 @@ namespace ArborNet.Data
             }
             return tokens;
         }
-
         /// <summary>
-        /// Decodes the list of token IDs back to text.
+        /// Decodes a list of token IDs back into text.
         /// </summary>
-        /// <param name="tokens">List of token IDs.</param>
-        /// <returns>The decoded text.</returns>
+        /// <param name="tokens">The list of token IDs to decode.</param>
+        /// <returns>The decoded text string.</returns>
+
         public string Decode(List<int> tokens)
         {
             var subwords = new List<string>();
             foreach (var token in tokens)
             {
-                var subword = vocab.FirstOrDefault(kvp => kvp.Value == token).Key ?? unkToken;
-                subwords.Add(subword);
+                if (reverseVocab.TryGetValue(token, out var subword))
+                {
+                    subwords.Add(subword);
+                }
+                else
+                {
+                    subwords.Add(unkToken);
+                }
             }
             return string.Join("", subwords);
         }

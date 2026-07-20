@@ -1,18 +1,50 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Functional;
-using ArborNet.Activations;
-using ArborNet.Core.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Functional;
+    using ArborNet.Activations;
+    using ArborNet.Core.Layers;
     /// <summary>
-    /// Implements a Gated Recurrent Unit (GRU) layer for sequential data processing.
-    /// This is a simplified single-step GRU assuming batch size of 1.
+    /// Represents a Gated Recurrent Unit (GRU) recurrent neural network layer.
     /// </summary>
+    /// <remarks>
+    /// This layer processes sequential data one step at a time. It maintains an internal hidden state 
+    /// and computes transitions using gating mechanisms. The update formulas applied at each time step are:
+    /// <list type="bullet">
+    /// <item>
+    /// <description>Reset Gate: <c>r = sigmoid(W_ir * x + b_ir + W_hr * h_prev + b_hr)</c></description>
+    /// </item>
+    /// <item>
+    /// <description>Update Gate: <c>z = sigmoid(W_iz * x + b_iz + W_hz * h_prev + b_hz)</c></description>
+    /// </item>
+    /// <item>
+    /// <description>Candidate Hidden State: <c>n = tanh(W_in * x + b_in + r * (W_hn * h_prev + b_hn))</c></description>
+    /// </item>
+    /// <item>
+    /// <description>Output Hidden State: <c>h_new = z * h_prev + (1 - z) * n</c></description>
+    /// </item>
+    /// </list>
+    /// This implementation dynamically adapts to the batch size of the input tensor.
+    /// </remarks>
+
+    #endregion
+
     public class GRU : BaseLayer
     {
         /// <summary>
@@ -110,15 +142,20 @@ namespace ArborNet.Layers
             // Initialize hidden state to zeros
             hidden = Tensor.Zeros(new TensorShape(hiddenSize));
         }
-
-
         /// <summary>
-        /// Performs the forward pass of the GRU layer.
-        /// Assumes input is a tensor of shape (inputSize,) representing a single time step.
-        /// Updates the internal hidden state and returns the new hidden state.
+        /// Computes the forward pass of the GRU layer for a single time step.
         /// </summary>
-        /// <param name="input">The input tensor of shape (inputSize,).</param>
-        /// <returns>The output hidden state tensor of shape (hiddenSize,).</returns>
+        /// <param name="input">
+        /// The input tensor for the current time step. 
+        /// Shape can be <c>(inputSize,)</c> for a single instance or <c>(batchSize, inputSize)</c> for a batch.
+        /// </param>
+        /// <returns>
+        /// The updated hidden state tensor of shape <c>(batchSize, hiddenSize)</c>.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when the input feature dimension does not match the configured <see cref="inputSize"/>.</exception>
+
+
         public override ITensor Forward(ITensor input)
         {
             ValidateInput(input);
@@ -164,12 +201,12 @@ namespace ArborNet.Layers
 
             return hidden;
         }
-
-
         /// <summary>
-        /// Gets the parameters of the GRU layer (weights and biases).
+        /// Retrieves all learnable parameter tensors (weights and biases) of this GRU layer.
         /// </summary>
-        /// <returns>An enumerable collection of the layer's parameters.</returns>
+        /// <returns>An enumerable collection of parameter tensors in the sequence of weights followed by biases.</returns>
+
+
         public override IEnumerable<ITensor> Parameters()
         {
             yield return W_ir;
@@ -185,10 +222,10 @@ namespace ArborNet.Layers
             yield return b_hz;
             yield return b_hn;
         }
-
         /// <summary>
-        /// Resets the hidden state to zeros.
+        /// Resets the internal hidden state of the GRU to a zero-filled vector of shape <c>(hiddenSize,)</c>.
         /// </summary>
+
         public void ResetHidden()
         {
             hidden = Tensor.Zeros(new TensorShape(hiddenSize));

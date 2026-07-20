@@ -1,11 +1,22 @@
-﻿using System.Collections.Generic;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
-using ArborNet.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System.Collections.Generic;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
     /// <summary>
     /// Implements a single Mistral transformer block consisting of pre-norm self-attention
     /// and a feed-forward network with residual connections.
@@ -13,10 +24,19 @@ namespace ArborNet.Layers
     /// <remarks>
     /// This block follows a standard pre-norm transformer architecture:
     /// <list type="bullet">
-    ///   <item>LayerNorm → Multi-Head Attention → Residual</item>
-    ///   <item>LayerNorm → Feed-Forward (Linear + ReLU + Linear) → Residual</item>
+    ///   <item>
+    ///     <description>LayerNorm → Multi-Head Attention → Residual addition of the block input.</description>
+    ///   </item>
+    ///   <item>
+    ///     <description>LayerNorm → Feed-Forward (Linear + ReLU + Linear) → Residual addition of the pre-FFN state.</description>
+    ///   </item>
     /// </list>
+    /// Pre-layer normalization (Pre-LN) provides superior gradient stability during backpropagation, 
+    /// enabling the training of deeper model architectures.
     /// </remarks>
+
+    #endregion
+
     public class MistralBlock : BaseLayer
     {
         /// <summary>
@@ -70,12 +90,15 @@ namespace ArborNet.Layers
             _parameters.AddRange(ff1.Parameters());
             _parameters.AddRange(ff2.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the Mistral transformer block.
+        /// Performs the forward pass computation for the Mistral transformer block.
         /// </summary>
-        /// <param name="x">The input tensor.</param>
-        /// <returns>The output tensor after applying attention and feed-forward layers with residual connections.</returns>
+        /// <param name="x">The input activation tensor from the preceding layer or embeddings stage.</param>
+        /// <returns>
+        /// A new <see cref="ITensor"/> containing the block output after executing the normalized attention sequence,
+        /// feed-forward sub-layer sequence, and their respective residual connections.
+        /// </returns>
+
         public override ITensor Forward(ITensor x)
         {
             var residual = x;
@@ -88,11 +111,11 @@ namespace ArborNet.Layers
             x = ff2.Forward(ff1.Forward(x).Relu());
             return x.Add(residual);
         }
-
         /// <summary>
-        /// Returns all trainable parameters contained within this block.
+        /// Retrieves all trainable parameter tensors contained within this block's sub-layers.
         /// </summary>
-        /// <returns>A collection of all parameter tensors from the sub-layers.</returns>
+        /// <returns>An enumerable collection of trainable <see cref="ITensor"/> parameters, including weights and biases.</returns>
+
         public override IEnumerable<ITensor> Parameters() => _parameters;
     }
 }

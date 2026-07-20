@@ -1,15 +1,40 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Functional;
-using ArborNet.Core.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Functional;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+    using System;
+    using System.Collections.Generic;
+    using System.Threading.Tasks;
+    /// <summary>
+    /// Represents a 1D Convolutional Layer (Conv1D) for neural networks.
+    /// Applies a 1D convolution over an input signal composed of several input channels.
+    /// </summary>
+    /// <remarks>
+    /// The input tensor is expected to have a shape of <c>(Batch, InChannels, InputLength)</c>.
+    /// The output tensor will have a shape of <c>(Batch, OutChannels, OutputLength)</c>, where
+    /// <c>OutputLength = (InputLength + 2 * Padding - KernelSize) / Stride + 1</c>.
+    /// </remarks>
+
+    #endregion
+
     public class Conv1D : BaseLayer
     {
+
         private readonly int _inChannels;
         private readonly int _outChannels;
         private readonly int _kernelSize;
@@ -41,6 +66,12 @@ namespace ArborNet.Layers
                 _bias.RequiresGrad = true;
             }
         }
+        /// <summary>
+        /// Performs the forward pass of the 1D convolution layer.
+        /// </summary>
+        /// <param name="input">The input tensor of shape <c>(Batch, InChannels, InputLength)</c>.</param>
+        /// <returns>A new tensor containing the results of the 1D convolution of shape <c>(Batch, OutChannels, OutputLength)</c>.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the calculated output length is non-positive.</exception>
 
         public override ITensor Forward(ITensor input)
         {
@@ -57,37 +88,33 @@ namespace ArborNet.Layers
             var wData = _weight.ToArray();
             var outData = new float[outputShape.TotalElements];
 
-            // Direct 1D Convolution Cross-Correlation
-            for (int b = 0; b < batch; b++)
+            Parallel.For(0, batch * _outChannels, idx =>
             {
-                for (int oc = 0; oc < _outChannels; oc++)
-                {
-                    for (int ol = 0; ol < outLen; ol++)
-                    {
-                        float sum = 0f;
-                        int outIdx = b * _outChannels * outLen + oc * outLen + ol;
+                int b = idx / _outChannels;
+                int oc = idx % _outChannels;
 
-                        for (int ic = 0; ic < _inChannels; ic++)
+                for (int ol = 0; ol < outLen; ol++)
+                {
+                    float sum = 0f;
+                    for (int ic = 0; ic < _inChannels; ic++)
+                    {
+                        for (int k = 0; k < _kernelSize; k++)
                         {
-                            for (int k = 0; k < _kernelSize; k++)
+                            int inPos = ol * _stride - _padding + k;
+                            if (inPos >= 0 && inPos < inLen)
                             {
-                                int inPos = ol * _stride - _padding + k;
-                                if (inPos >= 0 && inPos < inLen)
-                                {
-                                    int inIdx = b * _inChannels * inLen + ic * inLen + inPos;
-                                    int wIdx = oc * _inChannels * _kernelSize + ic * _kernelSize + k;
-                                    sum += inData[inIdx] * wData[wIdx];
-                                }
+                                int inIdx = b * _inChannels * inLen + ic * inLen + inPos;
+                                int wIdx = oc * _inChannels * _kernelSize + ic * _kernelSize + k;
+                                sum += inData[inIdx] * wData[wIdx];
                             }
                         }
-                        outData[outIdx] = sum;
                     }
+                    outData[b * _outChannels * outLen + oc * outLen + ol] = sum;
                 }
-            }
+            });
 
             var result = Tensor.FromArray(outData, outputShape, input.Device);
 
-            // ANALYTICAL BACKWARD PASS FOR 1D CONVOLUTION
             if (input.RequiresGrad || _weight.RequiresGrad)
             {
                 var capturedInput = input;
@@ -99,9 +126,10 @@ namespace ArborNet.Layers
                     var gradInputData = new float[capturedInput.Shape.TotalElements];
                     var gradWeightData = new float[capturedWeight.Shape.TotalElements];
 
-                    for (int b = 0; b < batch; b++)
+                    // Lock-Free Weight Gradient Evaluation: OutChannels Partitioning
+                    Parallel.For(0, _outChannels, oc =>
                     {
-                        for (int oc = 0; oc < _outChannels; oc++)
+                        for (int b = 0; b < batch; b++)
                         {
                             for (int ol = 0; ol < outLen; ol++)
                             {
@@ -118,36 +146,59 @@ namespace ArborNet.Layers
                                             int inIdx = b * _inChannels * inLen + ic * inLen + inPos;
                                             int wIdx = oc * _inChannels * _kernelSize + ic * _kernelSize + k;
 
-                                            // dL/dW
                                             gradWeightData[wIdx] += inData[inIdx] * goVal;
-
-                                            // dL/dX
-                                            gradInputData[inIdx] += wData[wIdx] * goVal;
                                         }
                                     }
                                 }
                             }
                         }
-                    }
+                    });
+
+                    // Lock-Free Input Gradient Evaluation: InputChannels Partitioning
+                    Parallel.For(0, batch * _inChannels, index =>
+                    {
+                        int b = index / _inChannels;
+                        int ic = index % _inChannels;
+
+                        for (int oc = 0; oc < _outChannels; oc++)
+                        {
+                            for (int ol = 0; ol < outLen; ol++)
+                            {
+                                int outIdx = b * _outChannels * outLen + oc * outLen + ol;
+                                float goVal = goData[outIdx];
+
+                                for (int k = 0; k < _kernelSize; k++)
+                                {
+                                    int inPos = ol * _stride - _padding + k;
+                                    if (inPos >= 0 && inPos < inLen)
+                                    {
+                                        int inIdx = b * _inChannels * inLen + ic * inLen + inPos;
+                                        int wIdx = oc * _inChannels * _kernelSize + ic * _kernelSize + k;
+
+                                        gradInputData[inIdx] += wData[wIdx] * goVal;
+                                    }
+                                }
+                            }
+                        }
+                    });
 
                     var gradInput = Tensor.FromArray(gradInputData, capturedInput.Shape, input.Device);
                     var gradWeight = Tensor.FromArray(gradWeightData, capturedWeight.Shape, input.Device);
 
                     if (capturedWeight.RequiresGrad)
                     {
-                        capturedWeight.Grad = capturedWeight.Grad == null ? gradWeight : capturedWeight.Grad.Add(gradWeight);
+                        capturedWeight.AccumulateGrad(gradWeight);
                     }
 
                     if (_useBias && _bias != null && _bias.RequiresGrad)
                     {
-                        // Gradient w.r.t bias is accumulated across batch and spatial length dimensions
                         var gradBias = gradOutput.Sum(2, false).Sum(0, false);
-                        _bias.Grad = _bias.Grad == null ? gradBias : _bias.Grad.Add(gradBias);
+                        _bias.AccumulateGrad(gradBias);
                     }
 
                     if (capturedInput.RequiresGrad)
                     {
-                        capturedInput.Grad = capturedInput.Grad == null ? gradInput : capturedInput.Grad.Add(gradInput);
+                        capturedInput.AccumulateGrad(gradInput);
                         capturedInput.GradFn?.Invoke(gradInput);
                     }
 
@@ -163,6 +214,10 @@ namespace ArborNet.Layers
 
             return result;
         }
+        /// <summary>
+        /// Returns an enumerator that iterates through the trainable parameters (weights and biases) of this layer.
+        /// </summary>
+        /// <returns>An enumerable collection of trainable tensors.</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

@@ -1,16 +1,33 @@
-﻿using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System;
+    using System.Collections.Generic;
     /// <summary>
-    /// Production-grade GPT model with causal self-attention, layer normalization,
-    /// and full autograd support. Uses only stable ArborNet primitives.
+    /// Represents a production-grade Generative Pre-trained Transformer (GPT) model architecture.
     /// </summary>
+    /// <remarks>
+    /// This model features causal self-attention, layer normalization, and full autograd support,
+    /// designed for sequence-to-sequence autoregressive tasks using stable ArborNet primitives.
+    /// </remarks>
+
+    #endregion
+
     public class GPT : BaseModel
     {
         /// <summary>
@@ -83,16 +100,16 @@ namespace ArborNet.Models
             parameters.AddRange(finalNorm.Parameters());
             parameters.AddRange(outputHead.Parameters());
         }
-
         /// <summary>
         /// Performs a forward pass through the GPT model.
         /// </summary>
-        /// <param name="input">Input tensor of token IDs with shape [batch, sequenceLength].</param>
-        /// <returns>Logits tensor with shape [batch, sequenceLength, vocabSize].</returns>
+        /// <param name="input">The input tensor containing token IDs with shape <c>[batch, sequenceLength]</c>.</param>
+        /// <returns>A logit tensor with shape <c>[batch, sequenceLength, vocabSize]</c>.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is null.</exception>
         /// <exception cref="ArgumentException">
-        /// Thrown when input rank is less than 2 or sequence length exceeds the maximum supported length.
+        /// Thrown when the rank of <paramref name="input"/> is less than 2, or when the input sequence length exceeds <see cref="_maxSeqLen"/>.
         /// </exception>
+
         public override ITensor Forward(ITensor input)
         {
             ValidateInput(input);
@@ -109,23 +126,23 @@ namespace ArborNet.Models
             x = finalNorm.Forward(x);
             return outputHead.Forward(x);
         }
-
         /// <summary>
-        /// Validates the input tensor meets the model's requirements.
+        /// Validates that the input tensor conforms to expected shape requirements.
         /// </summary>
-        /// <param name="input">The input tensor to validate.</param>
+        /// <param name="input">The tensor to validate.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is null.</exception>
-        /// <exception cref="ArgumentException">Thrown when input tensor rank is less than 2.</exception>
+        /// <exception cref="ArgumentException">Thrown when the rank of <paramref name="input"/> is less than 2.</exception>
+
         private void ValidateInput(ITensor input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (input.Shape.Rank < 2) throw new ArgumentException("Input must have at least 2 dimensions [batch, seqLen]");
         }
-
         /// <summary>
-        /// Returns all trainable parameters of the model.
+        /// Retrieves all trainable parameters associated with this GPT model instance.
         /// </summary>
-        /// <returns>An enumerable collection of all model parameters.</returns>
+        /// <returns>An enumerable collection of <see cref="ITensor"/> parameters, ordered from input to output layers.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
 }

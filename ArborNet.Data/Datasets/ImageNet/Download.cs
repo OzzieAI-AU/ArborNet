@@ -1,26 +1,42 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Threading.Tasks;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Interfaces;
-using SharpCompress.Archives;
-using SharpCompress.Archives.Tar;
-using SharpCompress.Common;
-using SharpCompress.Readers;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data.Datasets.ImageNet
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Net.Http;
+    using System.Threading.Tasks;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Interfaces;
+    using SharpCompress.Archives;
+    using SharpCompress.Archives.Tar;
+    using SharpCompress.Common;
+    using SharpCompress.Readers;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
+    using SixLabors.ImageSharp.Processing;
     /// <summary>
-    /// Handles download, extraction, and loading of ImageNet dataset images into tensors.
-    /// Note: ImageNet dataset requires registration at http://www.image-net.org/download-images to access download links.
-    /// Replace BaseUrl with actual authenticated URLs after registration.
+    /// Provides utility methods for downloading, extracting, and preprocessing the ImageNet dataset into tensor representations.
     /// </summary>
+    /// <remarks>
+    /// Access to the official ImageNet download endpoints requires user registration and authentication at http://www.image-net.org/download-images.
+    /// Before invoking the download methods, ensure <see cref="BaseUrl"/> is configured with valid, authenticated credentials.
+    /// </remarks>
+
+    #endregion
+
     public class Download
     {
         /// <summary>
@@ -33,12 +49,14 @@ namespace ArborNet.Data.Datasets.ImageNet
         /// This value is a placeholder. After registering at image-net.org, replace with the authenticated download URLs.
         /// </summary>
         private const string BaseUrl = "http://www.image-net.org/download-images"; // Placeholder; requires registration and authentication
-
         /// <summary>
-        /// Downloads the ImageNet dataset tar files to the specified destination path.
-        /// Requires valid URLs from ImageNet registration.
+        /// Asynchronously downloads the standard training, validation, and test ImageNet tar files to the designated local directory.
         /// </summary>
-        /// <param name="destinationPath">Path where tar files will be saved.</param>
+        /// <param name="destinationPath">The local directory path where the downloaded tar files will be saved. The directory will be created if it does not exist.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="destinationPath"/> is null or empty.</exception>
+        /// <exception cref="HttpRequestException">Thrown when a network error occurs or the server returns an unsuccessful HTTP status code.</exception>
+
         public async Task DownloadDatasetAsync(string destinationPath)
         {
             Directory.CreateDirectory(destinationPath);
@@ -50,25 +68,33 @@ namespace ArborNet.Data.Datasets.ImageNet
                 await DownloadFileAsync(url, localPath);
             }
         }
-
         /// <summary>
-        /// Downloads a single file from the given URL to the local path.
+        /// Downloads a specific file asynchronously from the provided URL and writes it directly to the local disk.
         /// </summary>
-        /// <param name="url">URL of the file to download.</param>
-        /// <param name="localPath">Local path to save the file.</param>
+        /// <param name="url">The complete remote URL from which the resource will be retrieved.</param>
+        /// <param name="localPath">The absolute local file path where the downloaded stream will be written.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous transfer operation.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="url"/> or <paramref name="localPath"/> is null.</exception>
+        /// <exception cref="HttpRequestException">Thrown if the HTTP response indicates a non-success status code.</exception>
+        /// <exception cref="IOException">Thrown if an I/O error occurs while creating or writing to the local file.</exception>
+
         private async Task DownloadFileAsync(string url, string localPath)
         {
             using var response = await _httpClient.GetAsync(url);
+
             response.EnsureSuccessStatusCode();
             using var fs = File.Create(localPath);
             await response.Content.CopyToAsync(fs);
         }
-
         /// <summary>
-        /// Extracts the downloaded tar files to the specified extract path using SharpCompress.
+        /// Locates all tar archives within the source directory and extracts their contents to the specified destination path.
         /// </summary>
-        /// <param name="sourcePath">Path containing the tar files.</param>
-        /// <param name="extractPath">Path where contents will be extracted.</param>
+        /// <param name="sourcePath">The local directory containing the source .tar archive files.</param>
+        /// <param name="extractPath">The target directory path where extracted file hierarchies will be written.</param>
+        /// <exception cref="DirectoryNotFoundException">Thrown if the source directory does not exist.</exception>
+        /// <exception cref="ArchiveException">Thrown if any archive is corrupted or has an invalid format.</exception>
+        /// <exception cref="IOException">Thrown if disk I/O errors occur during the extraction process.</exception>
+
         public void ExtractDataset(string sourcePath, string extractPath)
         {
             Directory.CreateDirectory(extractPath);
@@ -77,24 +103,27 @@ namespace ArborNet.Data.Datasets.ImageNet
             {
                 // FIXED: Use correct SharpCompress API with ReaderOptions for robustness
                 using var archive = TarArchive.OpenArchive(tarFile, new ReaderOptions { LeaveStreamOpen = true });
+
                 foreach (var entry in archive.Entries.Where(e => !e.IsDirectory))
                 {
                     entry.WriteToDirectory(extractPath, new ExtractionOptions { ExtractFullPath = true, Overwrite = true });
                 }
             }
         }
-
         /// <summary>
-        /// Loads a single image from the given path into a tensor, resizing to target dimensions.
-        /// Assumes RGB images; normalizes pixel values to [0, 1].
+        /// Asynchronously loads an image, resizes it to the specified dimensions, and generates a corresponding tensor.
         /// </summary>
-        /// <param name="imagePath">Path to the image file.</param>
-        /// <param name="targetWidth">Target width for resizing.</param>
-        /// <param name="targetHeight">Target height for resizing.</param>
-        /// <returns>Tensor representation of the image with shape [height, width, 3].</returns>
+        /// <param name="imagePath">The absolute path to the local image file to load.</param>
+        /// <param name="targetWidth">The desired width of the output image in pixels.</param>
+        /// <param name="targetHeight">The desired height of the output image in pixels.</param>
+        /// <returns>A task representing the asynchronous load operation, containing the initialized <see cref="ITensor"/> with a shape of [Height, Width, Channels].</returns>
+        /// <exception cref="FileNotFoundException">Thrown when the file specified by <paramref name="imagePath"/> cannot be found.</exception>
+        /// <exception cref="ArgumentException">Thrown when target dimensions are less than or equal to zero.</exception>
+
         public async Task<ITensor> LoadImageToTensorAsync(string imagePath, int targetWidth, int targetHeight)
         {
             using var image = await Image.LoadAsync<Rgb24>(imagePath);
+
             image.Mutate(x => x.Resize(targetWidth, targetHeight));
             var tensorData = new float[targetHeight, targetWidth, 3];
             float[] flatData = new float[targetHeight * targetWidth * 3];
@@ -106,15 +135,16 @@ namespace ArborNet.Data.Datasets.ImageNet
 
             return Tensor.FromArray(flatData, new TensorShape(targetHeight, targetWidth, 3));
         }
-
         /// <summary>
-        /// Loads all JPEG images from the specified directory into a list of tensors.
-        /// Handles large-scale data by processing asynchronously but sequentially to avoid memory issues.
+        /// Recursively searches the specified directory for JPEG files and loads them asynchronously into a list of tensors.
         /// </summary>
-        /// <param name="directoryPath">Path to the directory containing images.</param>
-        /// <param name="targetWidth">Target width for resizing.</param>
-        /// <param name="targetHeight">Target height for resizing.</param>
-        /// <returns>List of tensors for each image.</returns>
+        /// <param name="directoryPath">The base directory path from which image files will be retrieved.</param>
+        /// <param name="targetWidth">The target width in pixels for scaling each loaded image.</param>
+        /// <param name="targetHeight">The target height in pixels for scaling each loaded image.</param>
+        /// <returns>A task representing the asynchronous operation, returning a list of loaded <see cref="ITensor"/> objects.</returns>
+        /// <exception cref="DirectoryNotFoundException">Thrown if the path provided in <paramref name="directoryPath"/> does not exist.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown if the application lacks permissions to access the directory or its contents.</exception>
+
         public async Task<List<ITensor>> LoadAllImagesAsync(string directoryPath, int targetWidth, int targetHeight)
         {
             var images = new List<ITensor>();

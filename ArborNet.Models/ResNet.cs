@@ -1,17 +1,28 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using ArborNet.Activations;
-using ArborNet.Layers.Normalization;
-using ArborNet.Core.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using ArborNet.Activations;
+    using ArborNet.Layers.Normalization;
+    using ArborNet.Core.Layers;
     /// <summary>
     /// Implements the ResNet architecture from "Deep Residual Learning for Image Recognition"
     /// (He et al., 2015). Supports multiple variants including ResNet-18, ResNet-34, 
@@ -22,6 +33,9 @@ namespace ArborNet.Models
     /// (BasicBlock or BottleneckBlock), adaptive average pooling, and a final 
     /// fully-connected classification head.
     /// </remarks>
+
+    #endregion
+
     public class ResNet : BaseModel
     {
         /// <summary>
@@ -80,7 +94,6 @@ namespace ArborNet.Models
             parameters.AddRange(_layers.SelectMany(l => l.Parameters()));
             parameters.AddRange(_fc.Parameters());
         }
-
         /// <summary>
         /// Creates a stage consisting of multiple residual blocks.
         /// </summary>
@@ -91,6 +104,7 @@ namespace ArborNet.Models
         /// <param name="stride">Stride used for the first block in the stage (for downsampling).</param>
         /// <param name="device">Target computation device for the layers.</param>
         /// <returns>The number of output channels after this stage.</returns>
+
         private int MakeLayer(int planes, int blocks, int expansion, int inChannels, int stride, Device device)
         {
             for (int i = 0; i < blocks; i++)
@@ -107,13 +121,13 @@ namespace ArborNet.Models
             }
             return inChannels;
         }
-
         /// <summary>
         /// Performs a forward pass through the ResNet model.
         /// </summary>
         /// <param name="x">Input tensor of shape [batch, channels, height, width].</param>
         /// <returns>Output tensor of shape [batch, numClasses] containing class logits.</returns>
         /// <exception cref="ArgumentException">Thrown when the input tensor is not 4-dimensional.</exception>
+
         public override ITensor Forward(ITensor x)
         {
             if (x.Shape.Rank != 4)
@@ -125,18 +139,18 @@ namespace ArborNet.Models
             x = x.Reshape(x.Shape[0], -1);
             return _fc.Forward(x);
         }
-
         /// <summary>
         /// Returns all trainable parameters in the model.
         /// </summary>
         /// <returns>Collection of all parameter tensors from all layers and the final classifier.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
-
     /// <summary>
     /// Basic residual block used in ResNet-18 and ResNet-34.
     /// Consists of two 3x3 convolutions with a shortcut connection.
     /// </summary>
+
     public class BasicBlock : BaseLayer
     {
         /// <summary>
@@ -166,18 +180,21 @@ namespace ArborNet.Models
         {
             conv1 = new Conv2D(inChannels, planes, 3, stride, 1);
             bn1 = new BatchNorm(planes);
-            conv2 = new Conv2D(planes, planes, 3, 1, 1);
-            bn2 = new BatchNorm(planes);
 
-            if (stride != 1 || inChannels != planes)
-                downsample = new Conv2D(inChannels, planes, 1, stride, 0);
+            // CORRECTED: Scale output channels by the expansion parameter
+            conv2 = new Conv2D(planes, planes * expansion, 3, 1, 1);
+            bn2 = new BatchNorm(planes * expansion);
+
+            if (stride != 1 || inChannels != planes * expansion)
+                downsample = new Conv2D(inChannels, planes * expansion, 1, stride, 0);
         }
-
         /// <summary>
-        /// Executes the forward pass of the basic residual block.
+        /// Performs a forward pass through the ResNet model.
         /// </summary>
-        /// <param name="x">Input tensor.</param>
-        /// <returns>Output tensor after residual connection and ReLU activation.</returns>
+        /// <param name="x">Input tensor of shape [batch, channels, height, width].</param>
+        /// <returns>Output tensor of shape [batch, numClasses] containing class logits.</returns>
+        /// <exception cref="ArgumentException">Thrown when the input tensor is not 4-dimensional.</exception>
+
         public override ITensor Forward(ITensor x)
         {
             var residual = x;
@@ -186,11 +203,11 @@ namespace ArborNet.Models
             if (downsample != null) residual = downsample.Forward(residual);
             return new ReLU().Forward(x.Add(residual));
         }
-
         /// <summary>
-        /// Returns all trainable parameters contained in this block.
+        /// Returns all trainable parameters in the model.
         /// </summary>
-        /// <returns>Enumerable collection of all weight and bias tensors.</returns>
+        /// <returns>Collection of all parameter tensors from all layers and the final classifier.</returns>
+
         public override IEnumerable<ITensor> Parameters()
         {
             // FIXED: Yield tensors from layer.Parameters(), not the layer objects themselves (Conv2D is ILayer, not ITensor)
@@ -202,11 +219,11 @@ namespace ArborNet.Models
                 foreach (var p in downsample.Parameters()) yield return p;
         }
     }
-
     /// <summary>
     /// Bottleneck residual block used in ResNet-50, ResNet-101, and ResNet-152.
     /// Uses 1x1, 3x3, and 1x1 convolutions with an expansion factor of 4.
     /// </summary>
+
     public class BottleneckBlock : BaseLayer
     {
         /// <summary>
@@ -244,12 +261,13 @@ namespace ArborNet.Models
             if (stride != 1 || inChannels != planes * expansion)
                 downsample = new Conv2D(inChannels, planes * expansion, 1, stride, 0);
         }
-
         /// <summary>
-        /// Executes the forward pass of the bottleneck residual block.
+        /// Performs a forward pass through the ResNet model.
         /// </summary>
-        /// <param name="x">Input tensor.</param>
-        /// <returns>Output tensor after residual addition and final ReLU activation.</returns>
+        /// <param name="x">Input tensor of shape [batch, channels, height, width].</param>
+        /// <returns>Output tensor of shape [batch, numClasses] containing class logits.</returns>
+        /// <exception cref="ArgumentException">Thrown when the input tensor is not 4-dimensional.</exception>
+
         public override ITensor Forward(ITensor x)
         {
             var residual = x;
@@ -259,11 +277,11 @@ namespace ArborNet.Models
             if (downsample != null) residual = downsample.Forward(residual);
             return new ReLU().Forward(x.Add(residual));
         }
-
         /// <summary>
-        /// Returns all trainable parameters contained in this block.
+        /// Returns all trainable parameters in the model.
         /// </summary>
-        /// <returns>Enumerable collection of all weight and bias tensors.</returns>
+        /// <returns>Collection of all parameter tensors from all layers and the final classifier.</returns>
+
         public override IEnumerable<ITensor> Parameters()
         {
             // FIXED: Yield tensors from layer.Parameters(), not the layer objects themselves
@@ -277,7 +295,6 @@ namespace ArborNet.Models
                 foreach (var p in downsample.Parameters()) yield return p;
         }
     }
-
     /// <summary>
     /// 2D max pooling layer.
     /// </summary>
@@ -285,6 +302,7 @@ namespace ArborNet.Models
     /// Current implementation is a placeholder. A production version would delegate 
     /// to the appropriate backend implementation.
     /// </remarks>
+
     public class MaxPool2D : BaseLayer
     {
         private readonly int _kernelSize;
@@ -297,6 +315,12 @@ namespace ArborNet.Models
             _stride = stride;
             _padding = padding;
         }
+        /// <summary>
+        /// Performs a forward pass through the ResNet model.
+        /// </summary>
+        /// <param name="x">Input tensor of shape [batch, channels, height, width].</param>
+        /// <returns>Output tensor of shape [batch, numClasses] containing class logits.</returns>
+        /// <exception cref="ArgumentException">Thrown when the input tensor is not 4-dimensional.</exception>
 
         public override ITensor Forward(ITensor x)
         {
@@ -389,13 +413,17 @@ namespace ArborNet.Models
 
             return result;
         }
+        /// <summary>
+        /// Returns all trainable parameters in the model.
+        /// </summary>
+        /// <returns>Collection of all parameter tensors from all layers and the final classifier.</returns>
 
         public override IEnumerable<ITensor> Parameters() => Array.Empty<ITensor>();
     }
-
     /// <summary>
     /// Adaptive average pooling layer that reduces spatial dimensions to a fixed output size.
     /// </summary>
+
     public class AdaptiveAvgPool2D : BaseLayer
     {
         /// <summary>
@@ -408,18 +436,19 @@ namespace ArborNet.Models
         /// </summary>
         /// <param name="outputSize">Target height and width after pooling (default 1 for global pooling).</param>
         public AdaptiveAvgPool2D(int outputSize = 1) => this.outputSize = outputSize;
-
         /// <summary>
-        /// Performs adaptive average pooling by computing mean across spatial dimensions.
+        /// Performs a forward pass through the ResNet model.
         /// </summary>
-        /// <param name="x">Input tensor.</param>
-        /// <returns>Tensor with reduced spatial dimensions.</returns>
+        /// <param name="x">Input tensor of shape [batch, channels, height, width].</param>
+        /// <returns>Output tensor of shape [batch, numClasses] containing class logits.</returns>
+        /// <exception cref="ArgumentException">Thrown when the input tensor is not 4-dimensional.</exception>
+
         public override ITensor Forward(ITensor x) => x.Mean(new[] { -1, -2 });
-
         /// <summary>
-        /// Returns the parameters of this layer (none for pooling).
+        /// Returns all trainable parameters in the model.
         /// </summary>
-        /// <returns>Empty collection of tensors.</returns>
+        /// <returns>Collection of all parameter tensors from all layers and the final classifier.</returns>
+
         public override IEnumerable<ITensor> Parameters() => Array.Empty<ITensor>();
     }
 }

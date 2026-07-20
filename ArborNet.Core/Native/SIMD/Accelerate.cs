@@ -1,8 +1,19 @@
-﻿using System;
-using System.Runtime.Intrinsics;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Core.Native.SIMD
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Runtime.Intrinsics;
     /// <summary>
     /// Provides high-performance SIMD-accelerated binary operations for arrays of single-precision floating-point numbers.
     /// </summary>
@@ -16,20 +27,32 @@ namespace ArborNet.Core.Native.SIMD
     /// are valid arrays with at least <paramref name="length"/> elements, and that the arrays do not overlap in memory.
     /// </para>
     /// </remarks>
+    /// <seealso cref="System.Runtime.Intrinsics.Vector128"/>
+    /// <seealso cref="System.Runtime.Intrinsics.Vector128{T}"/>
+
+    #endregion
+
     public static class Accelerate
     {
-        // Binary operations for float arrays using SIMD acceleration
         /// <summary>
         /// Performs element-wise addition of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise sums.</param>
+        /// <param name="result">The destination array that receives the element-wise sums.</param>
         /// <param name="left">The first input array.</param>
         /// <param name="right">The second input array.</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Add(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using standard scalar addition.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
         public static void Add(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -46,18 +69,26 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = left[i] + right[i];
             }
         }
-
         /// <summary>
         /// Performs element-wise subtraction of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise differences.</param>
+        /// <param name="result">The destination array that receives the element-wise differences.</param>
         /// <param name="left">The first input array (minuend).</param>
         /// <param name="right">The second input array (subtrahend).</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Subtract(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using standard scalar subtraction.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
+
         public static void Subtract(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -74,18 +105,26 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = left[i] - right[i];
             }
         }
-
         /// <summary>
         /// Performs element-wise multiplication of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise products.</param>
+        /// <param name="result">The destination array that receives the element-wise products.</param>
         /// <param name="left">The first input array.</param>
         /// <param name="right">The second input array.</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Multiply(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using standard scalar multiplication.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
+
         public static void Multiply(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -102,18 +141,26 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = left[i] * right[i];
             }
         }
-
         /// <summary>
         /// Performs element-wise division of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise quotients.</param>
+        /// <param name="result">The destination array that receives the element-wise quotients.</param>
         /// <param name="left">The first input array (dividend).</param>
         /// <param name="right">The second input array (divisor).</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Divide(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using standard scalar division.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
+
         public static void Divide(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -130,18 +177,26 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = left[i] / right[i];
             }
         }
-
         /// <summary>
         /// Performs element-wise maximum of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise maximum values.</param>
+        /// <param name="result">The destination array that receives the element-wise maximum values.</param>
         /// <param name="left">The first input array.</param>
         /// <param name="right">The second input array.</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Max(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using <see cref="Math.Max(float, float)"/>.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
+
         public static void Max(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -158,18 +213,26 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = Math.Max(left[i], right[i]);
             }
         }
-
         /// <summary>
         /// Performs element-wise minimum of two float arrays using SIMD acceleration.
         /// </summary>
-        /// <param name="result">The array that receives the element-wise minimum values.</param>
+        /// <param name="result">The destination array that receives the element-wise minimum values.</param>
         /// <param name="left">The first input array.</param>
         /// <param name="right">The second input array.</param>
         /// <param name="length">The number of elements to process.</param>
         /// <remarks>
+        /// <para>
         /// Uses <see cref="Vector128.Min(Vector128{float}, Vector128{float})"/> to process four elements per iteration
         /// when possible. Remaining elements are processed using <see cref="Math.Min(float, float)"/>.
+        /// </para>
+        /// <para>
+        /// To ensure correct results and avoid undefined behavior, the source and destination arrays 
+        /// must not overlap in memory.
+        /// </para>
         /// </remarks>
+        /// <exception cref="NullReferenceException">Thrown when <paramref name="result"/>, <paramref name="left"/>, or <paramref name="right"/> is <see langword="null"/>.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="length"/> is greater than the capacity of any of the provided arrays.</exception>
+
         public static void Min(float[] result, float[] left, float[] right, int length)
         {
             int i = 0;
@@ -186,7 +249,5 @@ namespace ArborNet.Core.Native.SIMD
                 result[i] = Math.Min(left[i], right[i]);
             }
         }
-
-        // Additional SIMD operations can be added here as needed
     }
 }

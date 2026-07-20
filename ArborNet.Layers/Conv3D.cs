@@ -1,12 +1,24 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Functional;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Threading.Tasks;
+    using ArborNet.Core.Functional;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
     /// <summary>
     /// Implements a 3D convolutional layer.
     /// </summary>
@@ -16,9 +28,24 @@ namespace ArborNet.Layers
     /// This layer manages its own weight and optional bias tensors and integrates with the
     /// framework's parameter collection system through <see cref="BaseLayer"/>.
     /// </remarks>
+
+    #endregion
+
     public class Conv3D : BaseLayer
     {
+        /// <summary>
+        /// Gets the learnable weights of the 3D convolutional kernel.
+        /// </summary>
+        /// <value>
+        /// An <see cref="ITensor"/> of shape [outChannels, inChannels, kernelDepth, kernelHeight, kernelWidth].
+        /// </value>
         public ITensor Weight { get; private set; }
+        /// <summary>
+        /// Gets the optional learnable bias tensor.
+        /// </summary>
+        /// <value>
+        /// An <see cref="ITensor"/> of shape [outChannels], or <see langword="null"/> if bias is disabled.
+        /// </value>
         public ITensor? Bias { get; private set; }
 
         private readonly int inChannels, outChannels, kernelDepth, kernelHeight, kernelWidth;
@@ -45,6 +72,17 @@ namespace ArborNet.Layers
                 Bias.RequiresGrad = true;
             }
         }
+        /// <summary>
+        /// Executes the forward pass of the 3D convolutional layer.
+        /// </summary>
+        /// <param name="input">The input tensor, expected to be 5D with shape [batch, channels, depth, height, width].</param>
+        /// <returns>A new <see cref="ITensor"/> containing the activation outputs of the convolution.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown if the <paramref name="input"/> is not 5D, or if its channel dimension does not match <see cref="inChannels"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if the output dimensions (computed from input dimensions, kernel size, stride, and padding) are non-positive.
+        /// </exception>
 
         public override ITensor Forward(ITensor input)
         {
@@ -79,33 +117,58 @@ namespace ArborNet.Layers
             int outStrideD = outH * outW;
             int outStrideH = outW;
 
-            for (int b = 0; b < batch; b++)
-                for (int oc = 0; oc < outChannels; oc++)
-                    for (int od = 0; od < outD; od++)
-                        for (int oh = 0; oh < outH; oh++)
-                            for (int ow = 0; ow < outW; ow++)
+            // Fused parallel forward pass
+            Parallel.For(0, batch * outChannels, idx =>
+            {
+                int b = idx / outChannels;
+                int oc = idx % outChannels;
+
+                for (int od = 0; od < outD; od++)
+                {
+                    for (int oh = 0; oh < outH; oh++)
+                    {
+                        for (int ow = 0; ow < outW; ow++)
+                        {
+                            float sum = 0f;
+                            int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
+
+                            for (int ic = 0; ic < inChannels; ic++)
                             {
-                                float sum = 0f;
-                                int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
+                                int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
+                                int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
 
-                                for (int ic = 0; ic < inChannels; ic++)
-                                    for (int kd = 0; kd < kernelDepth; kd++)
-                                        for (int kh = 0; kh < kernelHeight; kh++)
-                                            for (int kw = 0; kw < kernelWidth; kw++)
+                                for (int kd = 0; kd < kernelDepth; kd++)
+                                {
+                                    int id = od * _stride - _padding + kd;
+                                    if (id < 0 || id >= inD) continue;
+
+                                    int inDepthOffset = inChannelOffset + id * inStrideD;
+                                    int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
+
+                                    for (int kh = 0; kh < kernelHeight; kh++)
+                                    {
+                                        int ih = oh * _stride - _padding + kh;
+                                        if (ih < 0 || ih >= inH) continue;
+
+                                        int inRowOffset = inDepthOffset + ih * inStrideH;
+                                        int wRowOffset = wDepthOffset + kh * kernelWidth;
+
+                                        for (int kw = 0; kw < kernelWidth; kw++)
+                                        {
+                                            int iw = ow * _stride - _padding + kw;
+                                            if (iw >= 0 && iw < inW)
                                             {
-                                                int id = od * _stride - _padding + kd;
-                                                int ih = oh * _stride - _padding + kh;
-                                                int iw = ow * _stride - _padding + kw;
-
-                                                if (id >= 0 && id < inD && ih >= 0 && ih < inH && iw >= 0 && iw < inW)
-                                                {
-                                                    int inIdx = b * inChannels * inStrideC + ic * inStrideC + id * inStrideD + ih * inStrideH + iw;
-                                                    int wIdx = oc * inChannels * wStrideC + ic * wStrideC + kd * kernelHeight * kernelWidth + kh * kernelWidth + kw;
-                                                    sum += inData[inIdx] * wData[wIdx];
-                                                }
+                                                sum += inData[inRowOffset + iw] * wData[wRowOffset + kw];
                                             }
-                                outData[outIdx] = sum;
+                                        }
+                                    }
+                                }
                             }
+                            outData[outIdx] = sum;
+                        }
+                    }
+                }
+            });
 
             var result = Tensor.FromArray(outData, outputShape, input.Device);
 
@@ -115,7 +178,6 @@ namespace ArborNet.Layers
                 result = result.Add(biasReshaped.BroadcastTo(result.Shape));
             }
 
-            // FIXED: Complete backpropagation algorithm replacing the zero-stub
             if (input.RequiresGrad || Weight.RequiresGrad)
             {
                 var capturedInput = input;
@@ -127,9 +189,10 @@ namespace ArborNet.Layers
                     var gradInputData = new float[capturedInput.Shape.TotalElements];
                     var gradWeightData = new float[capturedWeight.Shape.TotalElements];
 
-                    for (int b = 0; b < batch; b++)
+                    // Lock-free weight gradients partitioned by output channels
+                    Parallel.For(0, outChannels, oc =>
                     {
-                        for (int oc = 0; oc < outChannels; oc++)
+                        for (int b = 0; b < batch; b++)
                         {
                             for (int od = 0; od < outD; od++)
                             {
@@ -142,26 +205,32 @@ namespace ArborNet.Layers
 
                                         for (int ic = 0; ic < inChannels; ic++)
                                         {
+                                            int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
+                                            int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
+
                                             for (int kd = 0; kd < kernelDepth; kd++)
                                             {
+                                                int id = od * _stride - _padding + kd;
+                                                if (id < 0 || id >= inD) continue;
+
+                                                int inDepthOffset = inChannelOffset + id * inStrideD;
+                                                int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
+
                                                 for (int kh = 0; kh < kernelHeight; kh++)
                                                 {
+                                                    int ih = oh * _stride - _padding + kh;
+                                                    if (ih < 0 || ih >= inH) continue;
+
+                                                    int inRowOffset = inDepthOffset + ih * inStrideH;
+                                                    int wRowOffset = wDepthOffset + kh * kernelWidth;
+
                                                     for (int kw = 0; kw < kernelWidth; kw++)
                                                     {
-                                                        int id = od * _stride - _padding + kd;
-                                                        int ih = oh * _stride - _padding + kh;
                                                         int iw = ow * _stride - _padding + kw;
-
-                                                        if (id >= 0 && id < inD && ih >= 0 && ih < inH && iw >= 0 && iw < inW)
+                                                        if (iw >= 0 && iw < inW)
                                                         {
-                                                            int inIdx = b * inChannels * inStrideC + ic * inStrideC + id * inStrideD + ih * inStrideH + iw;
-                                                            int wIdx = oc * inChannels * wStrideC + ic * wStrideC + kd * kernelHeight * kernelWidth + kh * kernelWidth + kw;
-
-                                                            // dL/dW
-                                                            gradWeightData[wIdx] += inData[inIdx] * goVal;
-
-                                                            // dL/dX
-                                                            gradInputData[inIdx] += wData[wIdx] * goVal;
+                                                            int wIdx = wRowOffset + kw;
+                                                            gradWeightData[wIdx] += inData[inRowOffset + iw] * goVal;
                                                         }
                                                     }
                                                 }
@@ -171,25 +240,78 @@ namespace ArborNet.Layers
                                 }
                             }
                         }
-                    }
+                    });
+
+                    // Lock-free input gradients partitioned by batch and input channels
+                    Parallel.For(0, batch * inChannels, index =>
+                    {
+                        int b = index / inChannels;
+                        int ic = index % inChannels;
+
+                        int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
+
+                        for (int oc = 0; oc < outChannels; oc++)
+                        {
+                            int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
+
+                            for (int od = 0; od < outD; od++)
+                            {
+                                for (int oh = 0; oh < outH; oh++)
+                                {
+                                    for (int ow = 0; ow < outW; ow++)
+                                    {
+                                        int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
+                                        float goVal = goData[outIdx];
+
+                                        for (int kd = 0; kd < kernelDepth; kd++)
+                                        {
+                                            int id = od * _stride - _padding + kd;
+                                            if (id < 0 || id >= inD) continue;
+
+                                            int inDepthOffset = inChannelOffset + id * inStrideD;
+                                            int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
+
+                                            for (int kh = 0; kh < kernelHeight; kh++)
+                                            {
+                                                int ih = oh * _stride - _padding + kh;
+                                                if (ih < 0 || ih >= inH) continue;
+
+                                                int inRowOffset = inDepthOffset + ih * inStrideH;
+                                                int wRowOffset = wDepthOffset + kh * kernelWidth;
+
+                                                for (int kw = 0; kw < kernelWidth; kw++)
+                                                {
+                                                    int iw = ow * _stride - _padding + kw;
+                                                    if (iw >= 0 && iw < inW)
+                                                    {
+                                                        gradInputData[inRowOffset + iw] += wData[wRowOffset + kw] * goVal;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
 
                     var gradInput = Tensor.FromArray(gradInputData, capturedInput.Shape, input.Device);
                     var gradWeight = Tensor.FromArray(gradWeightData, capturedWeight.Shape, input.Device);
 
                     if (capturedWeight.RequiresGrad)
                     {
-                        capturedWeight.Grad = capturedWeight.Grad == null ? gradWeight : capturedWeight.Grad.Add(gradWeight);
+                        capturedWeight.AccumulateGrad(gradWeight);
                     }
 
                     if (Bias != null && Bias.RequiresGrad)
                     {
                         var gradBias = gradOutput.Sum(4, false).Sum(3, false).Sum(2, false).Sum(0, false);
-                        Bias.Grad = Bias.Grad == null ? gradBias : Bias.Grad.Add(gradBias);
+                        Bias.AccumulateGrad(gradBias);
                     }
 
                     if (capturedInput.RequiresGrad)
                     {
-                        capturedInput.Grad = capturedInput.Grad == null ? gradInput : capturedInput.Grad.Add(gradInput);
+                        capturedInput.AccumulateGrad(gradInput);
                         capturedInput.GradFn?.Invoke(gradInput);
                     }
 
@@ -199,6 +321,10 @@ namespace ArborNet.Layers
 
             return result;
         }
+        /// <summary>
+        /// Enumerates all of the learnable parameter tensors associated with this layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the layer's <see cref="Weight"/>, and <see cref="Bias"/> (if configured).</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

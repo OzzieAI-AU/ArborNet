@@ -1,17 +1,58 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Numerics;
-using System.Text;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Core.Holonomic
 {
 
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Numerics;
+    using System.Text;
+    /// <summary>
+    /// Provides a test harness and execution entry point to demonstrate, validate, and benchmark 
+    /// the functionality of the Holonomic Fractal Network.
+    /// </summary>
+    /// <remarks>
+    /// This class showcases the lifecycle of a holonomic operation, including layer initialization, 
+    /// complex wave input generation using polar coordinates, forward propagation, and the analysis of 
+    /// the output complex phase space.
+    /// </remarks>
+
+    #endregion
+
     class TestHolonomicNetwork
     {
-
+        /// <summary>
+        /// Executes a demonstration run of the Holonomic Fractal Network.
+        /// </summary>
+        /// <remarks>
+        /// The demonstration performs the following sequential actions:
+        /// <list type="bullet">
+        /// <item>
+        /// <description>Initializes a single <c>HolonomicLayer</c> with specified parameters (input size, neuron count, and internal fractal recursion depth).</description>
+        /// </item>
+        /// <item>
+        /// <description>Synthesizes randomized input data, transforming pseudo-random signals into complex polar coordinates representing wave-encoded states.</description>
+        /// </item>
+        /// <item>
+        /// <description>Executes the forward propagation pass of the layer to compute the complex output wave states.</description>
+        /// </item>
+        /// <item>
+        /// <description>Logs the resulting amplitudes (magnitudes) and phases (angles in radians) of the inputs and outputs to the console.</description>
+        /// </item>
+        /// </list>
+        /// </remarks>
         static void Test()
         {
-        
+
             Console.WriteLine("Initializing Holonomic Fractal Network...");
 
             int inputSize = 4;

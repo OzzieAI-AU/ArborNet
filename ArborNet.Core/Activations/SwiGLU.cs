@@ -1,51 +1,106 @@
-﻿using System;
-using ArborNet.Core;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Autograd;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Activations
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Autograd;
     /// <summary>
-    /// Implements the SwiGLU (Swish Gated Linear Unit) activation function.
-    /// SwiGLU splits the input tensor along the last dimension into two halves,
-    /// applies Swish (x * sigmoid(x)) to the second half, and multiplies it with the first half.
-    /// Requires the last dimension of the input to be even.
+    /// Represents the SwiGLU (Swish Gated Linear Unit) activation function layer.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// SwiGLU is a high-performing activation function commonly used in transformer-based 
-    /// large language models (e.g. Llama, PaLM). It is mathematically defined as:
+    /// SwiGLU is a high-performing gated activation function variant widely utilized in state-of-the-art 
+    /// Large Language Models (LLMs) such as LLaMA and PaLM. It leverages a gating mechanism to control 
+    /// the propagation of representation features through neural network pathways.
     /// </para>
     /// <para>
-    /// <c>output = x₁ ⊙ Swish(x₂)</c> where <c>x = split(x₁, x₂)</c> along the last dimension 
-    /// and <c>Swish(x) = x * sigmoid(x)</c>.
+    /// Mathematically, a standard SwiGLU operation is defined as:
+    /// <c>SwiGLU(x) = (x * W + b) ⊙ Swish(x * V + c)</c>
+    /// where <c>⊙</c> represents the element-wise (Hadamard) product.
     /// </para>
     /// <para>
-    /// When the last dimension is odd, the input tensor is returned unchanged to maintain 
-    /// compatibility with arbitrary tensor shapes.
+    /// In this implementation, the input tensor is divided along its last dimension into two equal-sized 
+    /// sub-tensors: <c>x₁</c> and <c>x₂</c>. The activation is computed as:
+    /// <c>output = x₁ ⊙ Swish(x₂)</c> where <c>Swish(x) = x * Sigmoid(x)</c>.
     /// </para>
     /// <para>
-    /// Gradient computation is automatically handled by the tensor autograd system 
-    /// through the <see cref="ITensor"/> operations.
+    /// Note: To partition the input tensor successfully, the size of its last dimension must be an even number. 
+    /// If the last dimension is odd, the operation acts as a fallback bypass, returning the input tensor unchanged 
+    /// to avoid dimension mismatch runtime errors and maintain compatibility.
+    /// </para>
+    /// <para>
+    /// Gradient computation and backward propagation are managed dynamically by the autograd subsystem through the 
+    /// tracked execution graph of the constituent operations (<c>Slice</c>, <c>Sigmoid</c>, and <c>Multiply</c>).
     /// </para>
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// ITensor input = TensorFactory.CreateRandom(new long[] { 2, 8 }); // Last dimension is even (8)
+    /// SwiGLU activation = new SwiGLU();
+    /// ITensor output = activation.Forward(input);
+    /// // The output shape is { 2, 4 } because the last dimension is split in half.
+    /// </code>
+    /// </example>
+    /// <seealso cref="ArborNet.Activations.BaseActivation" />
+    /// <seealso cref="ArborNet.Core.Interfaces.ITensor" />
+
+    #endregion
+
     public class SwiGLU : BaseActivation
     {
         /// <summary>
-        /// Computes the forward pass of the SwiGLU activation.
+        /// Computes the forward pass of the SwiGLU activation function.
         /// </summary>
-        /// <param name="input">The input tensor. The last dimension must be even.</param>
-        /// <returns>The output tensor after applying SwiGLU, or the input unchanged if the last dimension is odd.</returns>
+        /// <param name="input">The input multidimensional tensor (<see cref="ITensor"/>) to activate. 
+        /// The size of its last dimension must be an even number to execute the split gating logic.</param>
+        /// <returns>
+        /// An <see cref="ITensor"/> representing the gated activation with the last dimension size halved, 
+        /// or the original <paramref name="input"/> tensor if the last dimension is odd.
+        /// </returns>
+        /// <exception cref="NullReferenceException">Thrown when the <paramref name="input"/> tensor is <see langword="null"/>.</exception>
         /// <remarks>
         /// <para>
-        /// The method performs a non-destructive split of the last dimension using tensor slicing.
-        /// The second half is passed through a sigmoid function (creating the gate) and then 
-        /// multiplied element-wise with the first half.
+        /// The forward execution pipeline operates as follows:
+        /// <list type="number">
+        /// <item>
+        /// <description>Determines the index and length of the final dimension of the input tensor.</description>
+        /// </item>
+        /// <item>
+        /// <description>If the size of the last dimension is odd, bypasses processing and returns the input tensor unmodified.</description>
+        /// </item>
+        /// <item>
+        /// <description>Calculates the split midpoint of the final dimension.</description>
+        /// </item>
+        /// <item>
+        /// <description>Constructs multi-dimensional slice indices for the first half <c>a</c> and the second half <c>b</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>Slices the input tensor along the final dimension to obtain the linear path <c>a</c> and gate path <c>b</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>Applies a Sigmoid function to the gate pathway <c>b</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description>Multiplies <c>a</c> element-wise by the active gate tensor to produce the final output.</description>
+        /// </item>
+        /// </list>
         /// </para>
         /// <para>
-        /// No custom <see cref="GradFn"/> is required because all operations (Slice, Sigmoid, Multiply)
-        /// are tracked by the <see cref="ITensor"/> autograd infrastructure.
+        /// No manual backward pass or derivative registration (<c>GradFn</c>) is required, as the internal operations 
+        /// are automatically recorded to the dynamic execution tape of the autograd framework.
         /// </para>
         /// </remarks>
         public override ITensor Forward(ITensor input)

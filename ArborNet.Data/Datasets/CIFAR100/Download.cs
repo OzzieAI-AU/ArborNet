@@ -1,23 +1,37 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Net.Http;
-using System.Threading.Tasks;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Functional;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Data.Datasets.CIFAR100
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Net.Http;
+    using System.Threading.Tasks;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Functional;
     /// <summary>
-    /// Provides methods for downloading and loading the CIFAR-100 dataset
+    /// Provides utility methods for downloading and loading the CIFAR-100 dataset
     /// in its Python tar.gz format into ArborNet tensors and label arrays.
     /// </summary>
     /// <remarks>
-    /// The CIFAR-100 dataset contains 100 classes with 600 images per class (500 training, 100 test).
-    /// This utility downloads the official archive from the University of Toronto and parses
-    /// the binary batch files into normalized image tensors of shape (N, 3072).
+    /// The CIFAR-100 dataset consists of 60,000 32x32 color images in 100 classes, with 600 images per class. 
+    /// There are 500 training images and 100 testing images per class.
+    /// This helper automates the retrieval of the raw binaries and parses the dataset format into ready-to-use float tensors.
     /// </remarks>
+
+    #endregion
+
     public static class Download
     {
         /// <summary>
@@ -34,20 +48,26 @@ namespace ArborNet.Data.Datasets.CIFAR100
         /// The complete download URL for the CIFAR-100 dataset archive.
         /// </summary>
         private const string Url = BaseUrl + FileName;
-
         /// <summary>
-        /// Downloads the CIFAR-100 dataset archive from the official source.
+        /// Downloads the CIFAR-100 dataset archive asynchronously from the official URL to a specified destination directory.
         /// </summary>
-        /// <param name="destinationPath">The directory where the dataset archive will be saved.</param>
-        /// <returns>A task that represents the asynchronous download operation.</returns>
-        /// <exception cref="HttpRequestException">Thrown when the HTTP request fails or returns a non-success status code.</exception>
+        /// <param name="destinationPath">The local directory path where the dataset archive will be saved.</param>
+        /// <returns>A <see cref="Task"/> that represents the asynchronous download operation.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="destinationPath"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="destinationPath"/> is empty or contains invalid path characters.</exception>
+        /// <exception cref="HttpRequestException">Thrown when the HTTP request fails or returns an unsuccessful status code.</exception>
+        /// <exception cref="IOException">Thrown when writing to the file system fails.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when access to the destination path is denied.</exception>
+
         public static async Task DownloadDatasetAsync(string destinationPath)
         {
             string filePath = Path.Combine(destinationPath, FileName);
+
             using (var httpClient = new HttpClient())
             {
                 var response = await httpClient.GetAsync(Url);
                 response.EnsureSuccessStatusCode();
+
                 using (var contentStream = await response.Content.ReadAsStreamAsync())
                 using (var fileStream = File.Create(filePath))
                 {
@@ -55,20 +75,36 @@ namespace ArborNet.Data.Datasets.CIFAR100
                 }
             }
         }
-
         /// <summary>
-        /// Loads the CIFAR-100 training and test data from the extracted batch files.
+        /// Loads the CIFAR-100 training and test data from the extracted binary batch files in the specified path.
         /// </summary>
-        /// <param name="extractedPath">The path to the directory containing the extracted batch files (data_batch_1 through data_batch_5 and test_batch).</param>
+        /// <param name="extractedPath">The folder path containing the extracted CIFAR batch files (<c>data_batch_1</c> to <c>data_batch_5</c> and <c>test_batch</c>).</param>
         /// <returns>
         /// A tuple containing:
         /// <list type="bullet">
-        ///   <item><c>trainData</c>: A tensor of shape (50000, 3072) containing normalized training images.</item>
-        ///   <item><c>trainLabels</c>: An array of 50000 integer training labels.</item>
-        ///   <item><c>testData</c>: A tensor of shape (10000, 3072) containing normalized test images.</item>
-        ///   <item><c>testLabels</c>: An array of 10000 integer test labels.</item>
+        ///   <item>
+        ///     <term><c>trainData</c></term>
+        ///     <description>An <see cref="ITensor"/> representing normalized training images of shape (50000, 3072).</description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>trainLabels</c></term>
+        ///     <description>An array of 50,000 integer training labels.</description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>testData</c></term>
+        ///     <description>An <see cref="ITensor"/> representing normalized test images of shape (10000, 3072).</description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>testLabels</c></term>
+        ///     <description>An array of 10,000 integer test labels.</description>
+        ///   </item>
         /// </list>
         /// </returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="extractedPath"/> is null.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown when <paramref name="extractedPath"/> cannot be found.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when any expected binary batch file is missing.</exception>
+        /// <exception cref="IOException">Thrown when reading the dataset file fails.</exception>
+
         public static (ITensor trainData, int[] trainLabels, ITensor testData, int[] testLabels) LoadDataset(string extractedPath)
         {
             List<float[]> trainImages = new List<float[]>();
@@ -105,16 +141,31 @@ namespace ArborNet.Data.Datasets.CIFAR100
 
             return (trainData, trainLabels.ToArray(), testData, testLabelsList.ToArray());
         }
-
         /// <summary>
-        /// Loads a single batch file containing 10,000 images and their labels from the CIFAR-100 dataset.
+        /// Loads and parses a single CIFAR-100 binary batch file.
         /// </summary>
-        /// <param name="filePath">The full path to the binary batch file to load.</param>
-        /// <returns>A tuple containing a list of normalized image arrays (each of length 3072) and a list of corresponding labels.</returns>
+        /// <param name="filePath">The full file path to the binary batch file.</param>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        ///   <item>
+        ///     <term><c>images</c></term>
+        ///     <description>A list of float arrays, each representing a flattened, normalized image (3072 features, normalized to [0, 1]).</description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>labels</c></term>
+        ///     <description>A list of corresponding integer labels.</description>
+        ///   </item>
+        /// </list>
+        /// </returns>
         /// <remarks>
-        /// Images are normalized by dividing each byte value by 255.0f, resulting in float values in the range [0, 1].
-        /// The method uses specific byte offsets to navigate the binary format of the CIFAR batch files.
+        /// This method skips file metadata using predefined offsets and scales byte channel values (0-255) to floating point values (0.0-1.0).
         /// </remarks>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
+        /// <exception cref="FileNotFoundException">Thrown when the target file does not exist.</exception>
+        /// <exception cref="EndOfStreamException">Thrown if reading beyond the end of the binary file stream.</exception>
+        /// <exception cref="IOException">Thrown on stream access failures.</exception>
+
         private static (List<float[]> images, List<int> labels) LoadBatch(string filePath)
         {
             List<float[]> images = new List<float[]>();

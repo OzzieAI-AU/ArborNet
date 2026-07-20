@@ -1,41 +1,85 @@
-﻿using System;
-using ArborNet.Core;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Activations
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
     /// <summary>
     /// Implements the Sigmoid activation function with numerical stability (eps) and full autograd support.
-    /// Sigmoid(x) = 1 / (1 + exp(-x)). Derivative = sigmoid(x) * (1 - sigmoid(x)).
     /// </summary>
     /// <remarks>
-    /// This activation function is numerically stable and automatically registers
-    /// a custom gradient function when the input tensor requires gradients.
-    /// The implementation follows the mathematically equivalent but more stable form:
-    /// sigmoid(x) = 1 / (1 + exp(-x)).
+    /// <para>
+    /// The Sigmoid function is defined mathematically as:
+    /// <c>Sigmoid(x) = 1 / (1 + exp(-x))</c>.
+    /// Its derivative is computed as:
+    /// <c>d/dx [Sigmoid(x)] = Sigmoid(x) * (1 - Sigmoid(x))</c>.
+    /// </para>
+    /// <para>
+    /// This activation function maps any real-valued input tensor to a range between 0 and 1.
+    /// It is designed with numerical stability in mind to prevent overflow and underflow errors 
+    /// associated with computing exponentiation on extreme positive or negative values.
+    /// </para>
+    /// <para>
+    /// The implementation utilizes a domain-split approach to handle positive and negative inputs:
+    /// <list type="bullet">
+    /// <item>
+    /// <description>For <c>x &gt;= 0</c>: <c>1 / (1 + exp(-x))</c></description>
+    /// </item>
+    /// <item>
+    /// <description>For <c>x &lt; 0</c>: <c>exp(x) / (1 + exp(x))</c></description>
+    /// </item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// When the input tensor's <see cref="ITensor.RequiresGrad"/> is set to <see langword="true"/>,
+    /// a custom backward gradient callback is registered on the output tensor to support automatic differentiation.
+    /// </para>
     /// </remarks>
+    /// <seealso cref="BaseActivation" />
+    /// <seealso cref="ITensor" />
+
+    #endregion
+
     public class Sigmoid : BaseActivation
     {
         /// <summary>
-        /// Small constant added to the denominator for numerical stability.
+        /// A small epsilon value (<c>1e-8</c>) added to the denominator for numerical stability.
         /// </summary>
         /// <remarks>
-        /// Prevents division-by-zero errors when <c>exp(-x)</c> becomes very large.
+        /// Prevents division-by-zero errors or floating-point instability when <c>exp(-x)</c> or <c>exp(x)</c> 
+        /// is evaluated near extreme boundary values.
         /// </remarks>
         private const float EPS = 1e-8f;
-
         /// <summary>
-        /// Computes the sigmoid activation element-wise on the input tensor.
+        /// Computes the forward pass of the Sigmoid activation function element-wise on the input tensor.
         /// </summary>
-        /// <param name="input">The input tensor to which the sigmoid function will be applied.</param>
-        /// <returns>A new tensor containing the result of the sigmoid function applied element-wise.</returns>
+        /// <param name="input">The input <see cref="ITensor"/> to which the sigmoid function is applied.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the computed sigmoid activation values.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <see langword="null"/>.</exception>
         /// <remarks>
-        /// If the input tensor has <see cref="ITensor.RequiresGrad"/> set to <see langword="true"/>,
-        /// a gradient function is registered to support automatic differentiation.
-        /// The local gradient is computed as: <c>output * (1 - output)</c>.
+        /// <para>
+        /// This method validates the input and performs the sigmoid operation element-wise using a stable, split-domain formula.
+        /// </para>
+        /// <para>
+        /// If the <paramref name="input"/> tensor's <see cref="ITensor.RequiresGrad"/> property is set to <see langword="true"/>,
+        /// a custom backpropagation function (<c>GradFn</c>) is attached to the returned tensor. The local gradient 
+        /// is computed as <c>output * (1 - output)</c>, which is then combined with the incoming <c>gradOutput</c> 
+        /// via element-wise multiplication.
+        /// </para>
         /// </remarks>
+
         public override ITensor Forward(ITensor input)
         {
 

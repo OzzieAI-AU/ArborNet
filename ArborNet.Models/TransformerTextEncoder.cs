@@ -1,27 +1,44 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Layers;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
     /// <summary>
     /// PRODUCTION-GRADE Transformer-based text encoder with full ITensor contract compliance,
     /// device awareness, numerical stability, complete autograd support, and clean separation of concerns.
-    /// 
-    /// Features:
-    /// • Token + sinusoidal positional embeddings
-    /// • Stack of Transformer encoder blocks (reuses existing high-quality TransformerBlock)
-    /// • Final LayerNorm
-    /// • Optional mean-pooling or EOS token pooling
-    /// • Full parameter registration for optimizers
-    /// • Rigorous input validation and shape checking
-    /// • Zero stubs, zero NotImplementedException, zero technical debt
     /// </summary>
+    /// <remarks>
+    /// Features:
+    /// <list type="bullet">
+    /// <item><description>Token + sinusoidal positional embeddings.</description></item>
+    /// <item><description>Stack of Transformer encoder blocks (reuses existing high-quality TransformerBlock).</description></item>
+    /// <item><description>Final LayerNorm.</description></item>
+    /// <item><description>Optional mean-pooling or EOS token pooling.</description></item>
+    /// <item><description>Full parameter registration for optimizers.</description></item>
+    /// <item><description>Rigorous input validation and shape checking.</description></item>
+    /// <item><description>Zero stubs, zero NotImplementedException, zero technical debt.</description></item>
+    /// </list>
+    /// </remarks>
+
+    #endregion
+
     public sealed class TransformerTextEncoder : BaseModel
     {
         private readonly Embedding _tokenEmbedding;
@@ -77,14 +94,16 @@ namespace ArborNet.Models
                 parameters.AddRange(layer.Parameters());
             parameters.AddRange(_finalNorm.Parameters());
         }
-
         /// <summary>
-        /// Performs the forward pass through the text encoder.
+        /// Performs the forward pass through the text encoder, converting token IDs to sequence embeddings.
         /// </summary>
-        /// <param name="input">Input tensor of token IDs with shape [batchSize, sequenceLength].</param>
-        /// <returns>Encoded representations with shape [batchSize, sequenceLength, embedDim].</returns>
-        /// <exception cref="ArgumentNullException">Thrown when input is null.</exception>
-        /// <exception cref="ArgumentException">Thrown on invalid shape or sequence length.</exception>
+        /// <param name="input">Input tensor of token IDs with shape <c>[batchSize, sequenceLength]</c>.</param>
+        /// <returns>Encoded representations with shape <c>[batchSize, sequenceLength, embedDim]</c>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is null.</exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown if the <paramref name="input"/> tensor is not 2-dimensional, or if the actual sequence length exceeds <see cref="_maxSeqLen"/>.
+        /// </exception>
+
         public override ITensor Forward(ITensor input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
@@ -114,21 +133,23 @@ namespace ArborNet.Models
 
             return x;
         }
-
         /// <summary>
         /// Returns the pooled representation (mean of sequence) for downstream tasks like CLIP.
         /// </summary>
-        /// <param name="encoded">Output from <see cref="Forward(ITensor)"/>.</param>
-        /// <returns>Pooled embedding of shape [batchSize, embedDim].</returns>
+        /// <param name="encoded">Output from <see cref="Forward(ITensor)"/> of shape <c>[batchSize, sequenceLength, embedDim]</c>.</param>
+        /// <returns>Pooled embedding of shape <c>[batchSize, embedDim]</c>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="encoded"/> is null.</exception>
+
         public ITensor Pool(ITensor encoded)
         {
             if (encoded == null) throw new ArgumentNullException(nameof(encoded));
             return encoded.Mean(axis: 1); // mean over sequence dimension
         }
-
         /// <summary>
         /// Returns all trainable parameters for optimizer integration.
         /// </summary>
+        /// <returns>An enumerable collection of parameter tensors.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
 }

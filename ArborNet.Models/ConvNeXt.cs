@@ -1,11 +1,22 @@
-﻿using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
     /// Implements the ConvNeXt architecture, a modernized convolutional neural network 
     /// that achieves transformer-level performance using depthwise convolutions and 
@@ -16,6 +27,9 @@ namespace ArborNet.Models
     /// downsampling layers between stages, and a final classification head. The design draws 
     /// inspiration from Vision Transformers while preserving the efficiency of CNNs.
     /// </remarks>
+
+    #endregion
+
     public class ConvNeXt : BaseModel
     {
         /// <summary>
@@ -91,17 +105,23 @@ namespace ArborNet.Models
             parameters.AddRange(headNorm.Parameters());
             parameters.AddRange(head.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the ConvNeXt model.
+        /// Executes the forward pass of the ConvNeXt architecture.
         /// </summary>
-        /// <param name="x">The input tensor of shape (batch_size, 3, height, width).</param>
-        /// <returns>The output logits tensor of shape (batch_size, numClasses).</returns>
+        /// <param name="x">The input tensor, expected to have a shape of (Batch Size, 3, Height, Width).</param>
+        /// <returns>A logit tensor representing classification scores with shape (Batch Size, <c>numClasses</c>).</returns>
+        /// <exception cref="System.NullReferenceException">Thrown if the input tensor <paramref name="x"/> is null.</exception>
         /// <remarks>
-        /// The forward pass applies the stem, processes through four hierarchical stages 
-        /// (with downsampling between stages), applies final layer normalization, performs 
-        /// global average pooling over the spatial dimensions, and finally applies the linear head.
+        /// The forward pass pipeline sequentially performs:
+        /// <list type="number">
+        /// <item><description>Patch extraction and initial mapping via the stem convolution and stem normalization.</description></item>
+        /// <item><description>Hierarchical feature processing across four stages, utilizing downsampling between stages.</description></item>
+        /// <item><description>Final normalization of the resulting feature maps.</description></item>
+        /// <item><description>Global average pooling across spatial dimensions (Height and Width).</description></item>
+        /// <item><description>Projection through the linear classification head to obtain target logits.</description></item>
+        /// </list>
         /// </remarks>
+
         public override ITensor Forward(ITensor x)
         {
             x = stem.Forward(x);

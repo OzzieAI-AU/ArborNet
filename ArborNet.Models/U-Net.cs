@@ -1,11 +1,22 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
-using System.Linq;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
+    using System.Linq;
     /// <summary>
     /// Implements a U-Net style convolutional neural network architecture.
     /// </summary>
@@ -15,6 +26,9 @@ namespace ArborNet.Models
     /// The decoder reduces the channel depth and restores spatial information using learned convolutions
     /// and residual connections from the encoder path.
     /// </remarks>
+
+    #endregion
+
     public class UNet : BaseModel
     {
         /// <summary>
@@ -26,11 +40,11 @@ namespace ArborNet.Models
         /// Convolutional layers used in the decoder/upsampling path.
         /// </summary>
         private readonly Conv2D up1, up2, up3, up4;
-
         /// <summary>
         /// Returns all trainable parameters from the model.
         /// </summary>
         /// <returns>An enumerable collection of all <see cref="ITensor"/> parameters used by the network.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
 
         /// <summary>
@@ -58,11 +72,10 @@ namespace ArborNet.Models
 
             parameters.AddRange(new[] { conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9, up1, up2, up3, up4 }.SelectMany(l => l.Parameters()));
         }
-
         /// <summary>
         /// Performs a forward pass of the input through the U-Net architecture.
         /// </summary>
-        /// <param name="x">The input tensor.</param>
+        /// <param name="x">The input tensor containing image or feature maps.</param>
         /// <returns>The output tensor after passing through the encoder-decoder network with skip connections.</returns>
         /// <remarks>
         /// Architecture flow:
@@ -72,6 +85,7 @@ namespace ArborNet.Models
         /// </list>
         /// All intermediate activations use ReLU.
         /// </remarks>
+
         public override ITensor Forward(ITensor x)
         {
             var e1 = conv1.Forward(x).Relu();

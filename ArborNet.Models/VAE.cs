@@ -1,159 +1,96 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Activations;
-using ArborNet.Core;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Layers;
-using ArborNet.Layers.Normalization;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Activations;
+    using ArborNet.Core;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
+    using ArborNet.Layers.Normalization;
     /// <summary>
-    /// PRODUCTION-GRADE, NUMERICALLY STABLE, FULLY DIFFERENTIABLE Variational Autoencoder.
-    /// - Dynamically computes flattened size for any power-of-2 resolution
-    /// - Correct reparameterization trick with proper stochastic path
-    /// - Analytically exact KL divergence term attached via GradFn
-    /// - Clean encoder/decoder with consistent BatchNorm + ReLU
-    /// - Full ITensor contract compliance and autograd support
-    /// - Zero runtime exceptions, device-aware, memory-efficient
+    /// Represents a Variational Autoencoder (VAE) neural network model.
+    /// This model is designed to encode high-dimensional input into a lower-dimensional latent space
+    /// and reconstruct it back, utilizing dynamic linear layer scaling based on input spatial resolution.
     /// </summary>
+
+    #endregion
+
     public sealed class VAE : BaseModel
     {
-        /// <summary>
-        /// The dimensionality of the latent space.
-        /// </summary>
         private readonly int _latentDim;
-
-        /// <summary>
-        /// The compute device used for all tensor operations.
-        /// </summary>
         private readonly Device _device;
 
-        // Encoder
-        /// <summary>
-        /// First convolutional layer of the encoder (3 → 64).
-        /// </summary>
         private readonly Conv2D _encConv1;
-
-        /// <summary>
-        /// Batch normalization layer following the first encoder convolution.
-        /// </summary>
         private readonly BatchNorm _encBn1;
-
-        /// <summary>
-        /// Second convolutional layer of the encoder (64 → 128).
-        /// </summary>
         private readonly Conv2D _encConv2;
-
-        /// <summary>
-        /// Batch normalization layer following the second encoder convolution.
-        /// </summary>
         private readonly BatchNorm _encBn2;
-
-        /// <summary>
-        /// Third convolutional layer of the encoder (128 → 256).
-        /// </summary>
         private readonly Conv2D _encConv3;
-
-        /// <summary>
-        /// Batch normalization layer following the third encoder convolution.
-        /// </summary>
         private readonly BatchNorm _encBn3;
 
-        /// <summary>
-        /// Linear layer projecting the flattened encoder features to the latent mean.
-        /// </summary>
         private Linear _fcMu;
-
-        /// <summary>
-        /// Linear layer projecting the flattened encoder features to the latent log-variance.
-        /// </summary>
         private Linear _fcLogVar;
-
-        // Decoder
-        /// <summary>
-        /// Linear layer projecting the latent vector back to the flattened decoder input.
-        /// </summary>
         private Linear _fcDecode;
 
-        /// <summary>
-        /// First transposed convolutional layer of the decoder (256 → 128).
-        /// </summary>
         private readonly Conv2D _decConv1;
-
-        /// <summary>
-        /// Batch normalization layer following the first decoder convolution.
-        /// </summary>
         private readonly BatchNorm _decBn1;
-
-        /// <summary>
-        /// Second transposed convolutional layer of the decoder (128 → 64).
-        /// </summary>
         private readonly Conv2D _decConv2;
-
-        /// <summary>
-        /// Batch normalization layer following the second decoder convolution.
-        /// </summary>
         private readonly BatchNorm _decBn2;
-
-        /// <summary>
-        /// Third transposed convolutional layer of the decoder (64 → 32).
-        /// </summary>
         private readonly Conv2D _decConv3;
-
-        /// <summary>
-        /// Batch normalization layer following the third decoder convolution.
-        /// </summary>
         private readonly BatchNorm _decBn3;
-
-        /// <summary>
-        /// Final transposed convolutional layer of the decoder (32 → 3) with sigmoid activation.
-        /// </summary>
         private readonly Conv2D _decConv4;
 
-        /// <summary>
-        /// Cached flattened spatial size. Updated dynamically on first forward pass 
-        /// to support arbitrary power-of-2 input resolutions.
-        /// </summary>
-        private int _flattenedSize = -1; // computed on first forward pass
+        private int _flattenedSize = -1;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="VAE"/> class.
-        /// </summary>
-        /// <param name="latentDim">The dimensionality of the latent space. Default is 128.</param>
-        /// <param name="device">The target compute device. If null, <see cref="Device.CPU"/> is used.</param>
         public VAE(int latentDim = 128, Device? device = null)
         {
             _latentDim = latentDim;
             _device = device ?? Device.CPU;
 
-            // Encoder
-            _encConv1 = new Conv2D(3, 64, kernelSize: 4, stride: 2, padding: 1);
+            _encConv1 = new Conv2D(3, 64, kernelSize: 4, stride: 2, padding: 1, device: _device);
             _encBn1 = new BatchNorm(64);
-            _encConv2 = new Conv2D(64, 128, 4, 2, 1, false);
+            _encConv2 = new Conv2D(64, 128, 4, 2, 1, false, device: _device);
             _encBn2 = new BatchNorm(128);
-            _encConv3 = new Conv2D(128, 256, 4, 2, 1, false);
+            _encConv3 = new Conv2D(128, 256, 4, 2, 1, false, device: _device);
             _encBn3 = new BatchNorm(256);
 
-            // Latent projections - will be resized on first forward if needed
-            int initialFlat = 256 * 8 * 8; // default for 64x64 input after 3x downsampling
+            int initialFlat = 256 * 8 * 8;
             _fcMu = new Linear(initialFlat, latentDim, _device);
             _fcLogVar = new Linear(initialFlat, latentDim, _device);
-
-            // Decoder
             _fcDecode = new Linear(latentDim, initialFlat, _device);
-            _decConv1 = new Conv2D(256, 128, 4, 2, 1, false);
-            _decBn1 = new BatchNorm(128);
-            _decConv2 = new Conv2D(128, 64, 4, 2, 1, false);
-            _decBn2 = new BatchNorm(64);
-            _decConv3 = new Conv2D(64, 32, 4, 2, 1, false);
-            _decBn3 = new BatchNorm(32);
-            _decConv4 = new Conv2D(32, 3, 4, 2, 1, false);
 
-            // FIXED: Register actual tensors via .Parameters() instead of adding layer objects directly (Conv2D != ITensor)
+            _decConv1 = new Conv2D(256, 128, 4, 2, 1, false, device: _device);
+            _decBn1 = new BatchNorm(128);
+            _decConv2 = new Conv2D(128, 64, 4, 2, 1, false, device: _device);
+            _decBn2 = new BatchNorm(64);
+            _decConv3 = new Conv2D(64, 32, 4, 2, 1, false, device: _device);
+            _decBn3 = new BatchNorm(32);
+            _decConv4 = new Conv2D(32, 3, 4, 2, 1, false, device: _device);
+
+            RebuildParameters();
+        }
+        /// <summary>
+        /// Consolidates all model parameters from the individual encoder, decoder, and fully connected 
+        /// projection layers into the centralized parameters list.
+        /// </summary>
+
+        private void RebuildParameters()
+        {
+            parameters.Clear();
             parameters.AddRange(_encConv1.Parameters());
             parameters.AddRange(_encBn1.Parameters());
             parameters.AddRange(_encConv2.Parameters());
@@ -171,23 +108,30 @@ namespace ArborNet.Models
             parameters.AddRange(_decBn3.Parameters());
             parameters.AddRange(_decConv4.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the Variational Autoencoder.
+        /// Executes the forward pass of the model, returning only the reconstructed output tensor.
         /// </summary>
-        /// <param name="x">Input tensor of shape [batch, 3, height, width].</param>
-        /// <returns>The reconstructed image tensor with the KL divergence attached via <see cref="ITensor.GradFn"/>.</returns>
-        /// <remarks>
-        /// The encoder produces mu and logVar, which are used for the reparameterization trick to sample z.
-        /// The decoder reconstructs the image from z. The KL divergence is analytically computed and
-        /// attached to the output tensor's gradient function to ensure correct backpropagation.
-        /// </remarks>
+        /// <param name="input">The input tensor of shape [Batch, Channels, Height, Width].</param>
+        /// <returns>An <see cref="ITensor"/> representing the reconstructed image tensor.</returns>
+
         public override ITensor Forward(ITensor input)
         {
-            // Default compatibility
             var (recon, _) = ForwardVAE(input);
             return recon;
         }
+        /// <summary>
+        /// Executes a complete forward pass through the VAE, returning both the reconstructed output 
+        /// and the calculated Kullback-Leibler (KL) divergence loss.
+        /// </summary>
+        /// <param name="x">The input tensor, which must have a rank of 4 representing [Batch, Channels, Height, Width].</param>
+        /// <returns>
+        /// A tuple where:
+        /// <list type="bullet">
+        /// <item><description><c>Reconstruction</c>: The decoded reconstructed tensor of the same spatial shape as input.</description></item>
+        /// <item><description><c>KL_Loss</c>: A scalar tensor representing the mean Kullback-Leibler divergence loss.</description></item>
+        /// </list>
+        /// </returns>
+        /// <exception cref="ArgumentException">Thrown when the input tensor rank is not equal to 4.</exception>
 
         public (ITensor Reconstruction, ITensor KL_Loss) ForwardVAE(ITensor x)
         {
@@ -207,9 +151,9 @@ namespace ArborNet.Models
                 _fcMu = new Linear(currentFlat, _latentDim, _device);
                 _fcLogVar = new Linear(currentFlat, _latentDim, _device);
                 _fcDecode = new Linear(_latentDim, currentFlat, _device);
+                RebuildParameters();
             }
 
-            // Encoder
             var h1 = new ReLU().Forward(_encBn1.Forward(_encConv1.Forward(x)));
             var h2 = new ReLU().Forward(_encBn2.Forward(_encConv2.Forward(h1)));
             var h3 = new ReLU().Forward(_encBn3.Forward(_encConv3.Forward(h2)));
@@ -218,12 +162,10 @@ namespace ArborNet.Models
             var mu = _fcMu.Forward(flat);
             var logVar = _fcLogVar.Forward(flat);
 
-            // Reparameterization Trick
             var std = logVar.Multiply(0.5f).Exp();
             var eps = Tensor.Randn(mu.Shape, _device);
             var z = mu.Add(eps.Multiply(std));
 
-            // Decoder
             var decoded = _fcDecode.Forward(z);
             decoded = decoded.Reshape(batch, 256, h / 8, w / 8);
 
@@ -232,7 +174,6 @@ namespace ArborNet.Models
             decoded = new ReLU().Forward(_decBn3.Forward(_decConv3.Forward(decoded)));
             var reconstruction = new Sigmoid().Forward(_decConv4.Forward(decoded));
 
-            // Analytical KL loss
             var kl = logVar.Add(1.0f)
                            .Subtract(mu.Multiply(mu))
                            .Subtract(logVar.Exp())
@@ -241,45 +182,11 @@ namespace ArborNet.Models
 
             return (reconstruction, kl);
         }
-
         /// <summary>
-        /// Computes the Kullback-Leibler divergence between the learned posterior and the standard normal prior.
+        /// Retrieves an enumerable collection of all trainable parameters (weights and biases) in the model.
         /// </summary>
-        /// <param name="mu">Mean vector from the encoder.</param>
-        /// <param name="logVar">Log-variance vector from the encoder.</param>
-        /// <returns>Scalar tensor containing the negative KL divergence (to be minimized).</returns>
-        /// <remarks>
-        /// Closed-form KL for Gaussian: 
-        /// -0.5 * mean(1 + log(σ²) - μ² - σ
-        /// </remarks>
-        private ITensor ComputeKL(ITensor mu, ITensor logVar)
-        {
-            // KL(N(mu, sigma) || N(0,1)) = -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-            var kl = logVar.Add(1.0f)
-                           .Subtract(mu.Multiply(mu))
-                           .Subtract(logVar.Exp())
-                           .Multiply(0.5f);
-            return kl.Mean().Negate(); // we minimize
-        }
+        /// <returns>An <see cref="IEnumerable{ITensor}"/> containing all model parameters.</returns>
 
-        /// <summary>
-        /// Performs encoding to obtain latent parameters and decoding to obtain reconstruction in a single call.
-        /// </summary>
-        /// <param name="x">Input image tensor of shape [batch, 3, height, width].</param>
-        /// <returns>A tuple containing the reconstruction, the latent mean (mu), and the latent log-variance.</returns>
-        public (ITensor reconstruction, ITensor mu, ITensor logVar) EncodeDecode(ITensor x)
-        {
-            var recon = Forward(x);
-            var flat = x.Reshape(x.Shape[0], -1);
-            var mu = _fcMu.Forward(flat);
-            var logVar = _fcLogVar.Forward(flat);
-            return (recon, mu, logVar);
-        }
-
-        /// <summary>
-        /// Returns all trainable parameters registered in this model.
-        /// </summary>
-        /// <returns>Collection of all <see cref="ITensor"/> parameters used by the VAE.</returns>
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
 }

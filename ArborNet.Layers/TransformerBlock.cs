@@ -1,10 +1,21 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+    using System.Collections.Generic;
     /// <summary>
     /// Implements a single Transformer encoder block consisting of multi-head self-attention
     /// and a position-wise feed-forward network, with residual connections around each sub-layer.
@@ -14,6 +25,9 @@ namespace ArborNet.Layers
     /// The forward pass applies attention, adds a residual connection, then applies a 
     /// two-layer feed-forward network with ReLU activation and a second residual connection.
     /// </remarks>
+
+    #endregion
+
     public class TransformerBlock : BaseLayer
     {
         private readonly MultiHeadAttention attention;
@@ -36,7 +50,6 @@ namespace ArborNet.Layers
             ff1 = new Linear(dModel, ffDim);
             ff2 = new Linear(ffDim, dModel);
         }
-
         /// <summary>
         /// Performs a forward pass through the transformer block.
         /// </summary>
@@ -45,6 +58,24 @@ namespace ArborNet.Layers
         /// The output tensor of the same shape as <paramref name="input"/>, 
         /// after applying self-attention and the feed-forward network with residual connections.
         /// </returns>
+        /// <remarks>
+        /// The computation flow is defined as:
+        /// <list type="number">
+        /// <item>
+        /// <description>Calculate attention: <c>attn = Attention(input)</c></description>
+        /// </item>
+        /// <item>
+        /// <description>First residual connection: <c>x = input + attn</c></description>
+        /// </item>
+        /// <item>
+        /// <description>Feed-forward projection: <c>ff = Linear2(ReLU(Linear1(x)))</c></description>
+        /// </item>
+        /// <item>
+        /// <description>Second residual connection: <c>output = x + ff</c></description>
+        /// </item>
+        /// </list>
+        /// </remarks>
+
         public override ITensor Forward(ITensor input)
         {
             var attn = attention.Forward(input);
@@ -52,7 +83,6 @@ namespace ArborNet.Layers
             var ff = ff2.Forward(ff1.Forward(x).Relu());
             return x.Add(ff);
         }
-
         /// <summary>
         /// Returns all trainable parameters used by this transformer block.
         /// </summary>
@@ -60,6 +90,7 @@ namespace ArborNet.Layers
         /// An enumerable containing all parameters from the multi-head attention module 
         /// and both linear layers of the feed-forward network.
         /// </returns>
+
         public override IEnumerable<ITensor> Parameters()
         {
             foreach (var p in attention.Parameters()) yield return p;

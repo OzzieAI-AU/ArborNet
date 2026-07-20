@@ -1,19 +1,39 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Models;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Models;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements a denoising diffusion probabilistic model (DDPM) for generative tasks.
+    /// Implements a Denoising Diffusion Probabilistic Model (DDPM) designed for generative machine learning tasks.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This model precomputes a linear beta noise schedule and the corresponding cumulative
     /// alpha products used in the forward diffusion process. The denoising step is performed
-    /// by an internal UNet architecture. The class inherits parameter management from <see cref="BaseModel"/>.
+    /// by an internal U-Net architecture.
+    /// </para>
+    /// <para>
+    /// The class inherits parameter management from <see cref="BaseModel"/>, enabling tracking
+    /// of all trainable weights and biases across the network.
+    /// </para>
     /// </remarks>
+
+    #endregion
+
     public class DiffusionModel : BaseModel
     {
         /// <summary>
@@ -37,11 +57,11 @@ namespace ArborNet.Models
         /// The U-Net network responsible for predicting noise or denoising the input.
         /// </summary>
         private readonly UNet denoiser;
-
         /// <summary>
-        /// Returns all trainable parameters managed by this model.
+        /// Retrieves all trainable parameters associated with this diffusion model, including the parameters of the underlying denoiser.
         /// </summary>
-        /// <returns>An enumerable collection of <see cref="ITensor"/> containing all model parameters.</returns>
+        /// <returns>An <see cref="IEnumerable{ITensor}"/> representing the trainable parameters (weights, biases) of the model.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
 
         /// <summary>
@@ -63,12 +83,12 @@ namespace ArborNet.Models
             denoiser = new UNet(3, 3, 256);
             parameters.AddRange(denoiser.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the diffusion model.
+        /// Executes the forward pass of the diffusion model by routing the input through the underlying denoiser network.
         /// </summary>
-        /// <param name="input">The input tensor, typically a noisy sample.</param>
-        /// <returns>The output tensor produced by the underlying denoiser network.</returns>
+        /// <param name="input">The input <see cref="ITensor"/> representing the noisy sample at a given timestep.</param>
+        /// <returns>The output <see cref="ITensor"/> representing the predicted noise or denoised representation.</returns>
+
         public override ITensor Forward(ITensor input)
         {
             return denoiser.Forward(input);

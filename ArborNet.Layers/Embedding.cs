@@ -1,19 +1,39 @@
-﻿using ArborNet.Core.Functional;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using ArborNet.Core.Tensors;
-using System;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Functional;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+    using System;
+    using System.Collections.Generic;
     /// <summary>
-    /// Thread-safe categorical embedding table layer.
+    /// Represents a thread-safe categorical embedding table layer that maps integer indices to dense vectors.
     /// </summary>
+
+    #endregion
+
     public class Embedding : BaseLayer
     {
         private ITensor _weights;
+        /// <summary>
+        /// Gets the size of the dictionary of embeddings (vocabulary size).
+        /// </summary>
         public int NumEmbeddings { get; }
+        /// <summary>
+        /// Gets the size of each embedding vector.
+        /// </summary>
         public int EmbeddingDim { get; }
 
         public Embedding(int numEmbeddings, int embeddingDim)
@@ -23,6 +43,13 @@ namespace ArborNet.Layers
             _weights = Initializers.Normal(new TensorShape(numEmbeddings, embeddingDim));
             _weights.RequiresGrad = true;
         }
+        /// <summary>
+        /// Performs the forward pass of the embedding layer, mapping input indices to their corresponding embedding vectors.
+        /// </summary>
+        /// <param name="indices">A tensor containing index values to retrieve from the embedding table.</param>
+        /// <returns>A tensor containing the retrieved embedding vectors with the additional embedding dimension appended.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="indices"/> is null.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown when an index in <paramref name="indices"/> is out of bounds for the vocabulary size.</exception>
 
         public override ITensor Forward(ITensor indices)
         {
@@ -87,6 +114,10 @@ namespace ArborNet.Layers
 
             return result;
         }
+        /// <summary>
+        /// Retrieves the learnable parameters of this layer.
+        /// </summary>
+        /// <returns>An enumerable collection containing the weight tensor of the embedding layer.</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

@@ -1,19 +1,50 @@
-﻿namespace ArborNet.Core.Initializers
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Core.Initializers
 {
+
+    #region Using Statements:
 
     using ArborNet.Core.Devices;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Tensors;
     using System;
     using System.Collections.Generic;
-
-
     /// <summary>
-    /// Generates structured pseudo-random noise matrices based on mathematical sequences.
-    /// Outputs native ArborNet ITensors.
+    /// Provides static factory methods for generating structured pseudo-random noise matrices
+    /// based on various mathematical and chaotic sequences (fractals).
     /// </summary>
+    /// <remarks>
+    /// These initializers generate deterministic, structured patterns that can be used as weight
+    /// initializers in neural networks, offering an alternative to standard Gaussian or Uniform distributions.
+    /// The generated values are automatically scaled using a Xavier/Glorot-like scaling factor based on the column dimensions.
+    /// </remarks>
+
+    #endregion
+
+
     public static class FractalInitializers
     {
+        /// <summary>
+        /// Generates a two-dimensional <see cref="ITensor"/> filled with structured pseudo-random values
+        /// derived from a specified mathematical fractal sequence, scaled for neural network initialization.
+        /// </summary>
+        /// <remarks>
+        /// The generated values from the fractal pool are scaled by a factor of <c>sqrt(2 / cols)</c> to help sustain 
+        /// stable variance of activation levels across layers, analogous to He/Xavier initialization schemes.
+        /// </remarks>
+        /// <param name="rows">The number of rows in the output tensor.</param>
+        /// <param name="cols">The number of columns in the output tensor.</param>
+        /// <param name="type">The type of fractal or mathematical sequence to use for generation.</param>
+        /// <param name="device">The hardware device on which the tensor should be allocated. Defaults to <see langword="null"/>.</param>
+        /// <returns>An initialized <see cref="ITensor"/> containing the generated fractal-based weights.</returns>
         public static ITensor Generate(int rows, int cols, FractalType type, Device device = null)
         {
             int size = rows * cols;
@@ -26,8 +57,15 @@
                 flatData[i] = pool[i] * scale;
             }
 
-            return Tensor.FromArray(flatData, new TensorShape(new int[] { rows, cols } ));
+            return Tensor.FromArray(flatData, new TensorShape(new int[] { rows, cols }));
         }
+        /// <summary>
+        /// Retrieves a raw list of float values representing the unscaled fractal pool
+        /// of the specified type and size.
+        /// </summary>
+        /// <param name="size">The total number of elements required in the pool.</param>
+        /// <param name="type">The type of fractal algorithm to execute.</param>
+        /// <returns>A list of float values containing the raw sequence values.</returns>
 
         private static List<float> GetFractalPool(int size, FractalType type)
         {
@@ -42,6 +80,16 @@
                     return GetGoldenRatioPool(size);
             }
         }
+        /// <summary>
+        /// Generates a pool of values based on the mathematical gaps between consecutive prime numbers.
+        /// </summary>
+        /// <remarks>
+        /// This method finds consecutive prime numbers starting from 2, computes the gap between them,
+        /// and applies a trigonometric transformation (<c>Math.Sin(gap) * Math.Cos(gap * Math.PI / 4.0)</c>)
+        /// to project the gaps into a bounded pseudo-random space.
+        /// </remarks>
+        /// <param name="size">The total number of elements to generate.</param>
+        /// <returns>A list of float values representing the prime gap signature sequence.</returns>
 
         private static List<float> GetPrimeGapPool(int size)
         {
@@ -67,6 +115,15 @@
             }
             return pool;
         }
+        /// <summary>
+        /// Generates a pool of values based on the escape velocity iterations of the Mandelbrot set bifurcation.
+        /// </summary>
+        /// <remarks>
+        /// Maps a 2D grid onto the complex plane coordinates, computes the Mandelbrot iteration count (up to 100 iterations)
+        /// for each point, and applies a hyperbolic tangent scaling to normalize the values between -1.0 and 1.0.
+        /// </remarks>
+        /// <param name="size">The total number of elements to generate.</param>
+        /// <returns>A list of float values representing the normalized Mandelbrot bifurcation sequence.</returns>
 
         private static List<float> GetMandelbrotPool(int size)
         {
@@ -93,6 +150,15 @@
             }
             return pool;
         }
+        /// <summary>
+        /// Generates a pool of values using a ternary-based Cantor Dust sieve simulation.
+        /// </summary>
+        /// <remarks>
+        /// Iteratively removes the middle third of the interval (classic Cantor set construction) up to 6 levels of recursion.
+        /// Points remaining in the Cantor set are assigned a high value (0.85f), while removed points are assigned a low value (-0.85f).
+        /// </remarks>
+        /// <param name="size">The total number of elements to generate.</param>
+        /// <returns>A list of float values representing the binary Cantor Dust density sequence.</returns>
 
         private static List<float> GetCantorDustPool(int size)
         {
@@ -111,6 +177,15 @@
             }
             return pool;
         }
+        /// <summary>
+        /// Generates a pool of values based on the fractional part of successive multiples of the Golden Ratio.
+        /// </summary>
+        /// <remarks>
+        /// Uses the low-discrepancy Weyl sequence based on the Golden Ratio (<c>phi = 1.618033988749895</c>)
+        /// to distribute values evenly across a bounded interval, mapped to the range [-1.0, 1.0].
+        /// </remarks>
+        /// <param name="size">The total number of elements to generate.</param>
+        /// <returns>A list of float values representing the Golden Ratio phase distribution.</returns>
 
         private static List<float> GetGoldenRatioPool(int size)
         {
@@ -123,6 +198,16 @@
             }
             return pool;
         }
+        /// <summary>
+        /// Generates a pool of values based on the number of steps required to reach 1 in the Collatz Conjecture sequence.
+        /// </summary>
+        /// <remarks>
+        /// For each integer from 1 to <paramref name="size"/>, the Collatz (3n + 1) sequence is evaluated to count the
+        /// number of halving/tripling steps needed to reach the value 1. The sine of the total step count is stored to 
+        /// ensure a balanced trigonometric distribution.
+        /// </remarks>
+        /// <param name="size">The total number of elements to generate.</param>
+        /// <returns>A list of float values representing the Collatz sequence progression.</returns>
 
         private static List<float> GetCollatzPool(int size)
         {

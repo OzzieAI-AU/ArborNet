@@ -1,18 +1,32 @@
-﻿using ArborNet.Core;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Fluent;
-using ArborNet.Core.Initializers;
-using ArborNet.Layers.Fractal;
-using System;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Fluent;
+    using ArborNet.Core.Initializers;
+    using ArborNet.Layers.Fractal;
+    using System;
+    using System.Collections.Generic;
     /// <summary>
     /// An advanced Large Language Model combining structured Fractal Weight Initialization
     /// with O(N) Subquadratic Sparse Attention. Completely native to ArborNet.
     /// </summary>
+
+    #endregion
+
     public class FractalLLM : BaseModel
     {
         private readonly FractalLinear _tokenEmbedding;
@@ -48,10 +62,13 @@ namespace ArborNet.Models
             foreach (var layer in _layers) parameters.AddRange(layer.Parameters());
             parameters.AddRange(_outputHead.Parameters());
         }
-
         /// <summary>
-        /// Highly expressive Fluent Forward Pass.
+        /// Highly expressive Fluent Forward Pass execution flow.
         /// </summary>
+        /// <param name="input">An input tensor of shape [batch, seqLen, vocabSize] containing one-hot encoded sequence indices.</param>
+        /// <returns>The raw logit predictions tensor of shape [batch, seqLen, vocabSize].</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="input"/> is null.</exception>
+
         public override ITensor Forward(ITensor input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
@@ -80,11 +97,13 @@ namespace ArborNet.Models
 
             return logits.Tensor;
         }
-
         /// <summary>
         /// Extracts dynamic variance and scales the token structural signature.
         /// Built entirely using native ArborNet ITensor primitives.
         /// </summary>
+        /// <param name="stateVector">The input hidden state tensor to undergo variance modulation.</param>
+        /// <returns>A fluent tensor wrapper representing the scaled structural state.</returns>
+
         private X ApplyVarianceModulator(ITensor stateVector)
         {
             // 1. Mean across the embedding dimension (axis -1)
@@ -103,6 +122,10 @@ namespace ArborNet.Models
             // 4. Apply structural signature mapping
             return (stateVector.Multiply(signature)).ToX();
         }
+        /// <summary>
+        /// Retrieves the complete list of optimizable parameters (tensors) registered in this model.
+        /// </summary>
+        /// <returns>An enumerable collection of autograd parameters.</returns>
 
         public override IEnumerable<ITensor> Parameters() => parameters;
     }

@@ -1,15 +1,29 @@
-﻿using System;
-using System.Collections.Generic;
-using ArborNet.Core.Devices;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using ArborNet.Core.Functional;
-using ArborNet.Layers;
-using ArborNet.Activations;
-using ArborNet.Core.Models;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Core.Functional;
+    using ArborNet.Layers;
+    using ArborNet.Activations;
+    using ArborNet.Core.Models;
+
+    #endregion
+
     /// <summary>
     /// BERT model implementation compatible with the current ArborNet architecture.
     /// Fully implements BaseModel abstract members and uses only available APIs.
@@ -147,8 +161,8 @@ namespace ArborNet.Models
             }
 
             // Take [CLS] token (first token)
-            var clsToken = hidden.Slice((0, batchSize, 1), (0, 1, 1));
-            clsToken = clsToken.Reshape(batchSize, hidden.Shape[1]);
+            var clsToken = hidden.Slice((0, batchSize, 1), (0, 1, 1), (0, hidden.Shape[2], 1));
+            clsToken = clsToken.Reshape(batchSize, hidden.Shape[2]);
 
             var pooled = pooler.Forward(clsToken);
             pooled = new Tanh().Forward(pooled);

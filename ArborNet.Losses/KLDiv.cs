@@ -1,19 +1,40 @@
-﻿using System;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Losses
 {
+
+    #region Using Statements:
+
+    using System;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
     /// <summary>
-    /// Kullback-Leibler Divergence loss.
-    /// Expects targets as probabilities and predictions as log-probabilities.
+    /// Represents the Kullback-Leibler (KL) Divergence loss function.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The Kullback-Leibler divergence measures how one probability distribution diverges 
-    /// from a second expected probability distribution. This implementation follows the 
-    /// forward formula: target * (log(target) - predictions), where predictions are 
-    /// expected to be in log space.
+    /// from a second expected probability distribution.
+    /// </para>
+    /// <para>
+    /// This implementation expects the <paramref name="targets"/> to be given as probabilities 
+    /// and the <paramref name="predictions"/> to be given as log-probabilities (e.g., from a LogSoftmax layer).
+    /// </para>
+    /// <para>
+    /// The forward formula computed per element is: 
+    /// <c>loss = target * (log(target) - prediction)</c>
+    /// </para>
     /// </remarks>
+
+    #endregion
+
     public class KLDiv : BaseLoss
     {
         /// <summary>
@@ -21,18 +42,26 @@ namespace ArborNet.Losses
         /// taking the logarithm of zero.
         /// </summary>
         private const float EPS = 1e-10f;
-
         /// <summary>
         /// Computes the Kullback-Leibler Divergence loss between the predicted 
         /// log-probabilities and target probabilities.
         /// </summary>
-        /// <param name="predictions">Tensor of predicted log-probabilities.</param>
-        /// <param name="targets">Tensor of target probabilities.</param>
+        /// <param name="predictions">The tensor containing the predicted log-probabilities.</param>
+        /// <param name="targets">The tensor containing the ground-truth target probabilities.</param>
         /// <param name="reduction">
-        /// Specifies the reduction to apply to the output: "none", "mean", or "sum". 
-        /// Default is "mean".
+        /// Specifies the reduction reduction to apply to the output. 
+        /// Options include:
+        /// <list type="bullet">
+        /// <item><description><c>"none"</c>: No reduction is applied.</description></item>
+        /// <item><description><c>"mean"</c>: The sum of the output is divided by the number of elements.</description></item>
+        /// <item><description><c>"sum"</c>: The output will be summed.</description></item>
+        /// </list>
+        /// Default is <c>"mean"</c>.
         /// </param>
-        /// <returns>The computed KL divergence loss after the specified reduction.</returns>
+        /// <returns>An <see cref="ITensor"/> containing the calculated KL divergence loss.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if either <paramref name="predictions"/> or <paramref name="targets"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if input shapes or devices are incompatible.</exception>
+
         public override ITensor Forward(ITensor predictions, ITensor targets, string reduction = "mean")
         {
             ValidateInputs(predictions, targets);

@@ -1,5 +1,17 @@
-﻿namespace ArborNet.Layers
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
     using System;
     using System.Collections.Generic;
     using ArborNet.Activations;
@@ -10,10 +22,15 @@
     using ArborNet.Core.Functional;
     using System.Threading.Tasks;
     using ArborNet.Core.Layers;
-
     /// <summary>
     /// Production-grade 2D convolutional layer with thread-safe atomic autograd support.
+    /// Handles forward validation, multi-threaded CPU convolution, and registers 
+    /// lock-free parallelized backward passes for autograd gradient accumulation.
     /// </summary>
+
+    #endregion
+
+
     public class Conv2D : BaseLayer
     {
         private readonly int _inChannels;
@@ -45,6 +62,13 @@
                 _bias.RequiresGrad = true;
             }
         }
+        /// <summary>
+        /// Computes the forward pass of the 2D convolution operation and sets up the autograd backward graph if required.
+        /// </summary>
+        /// <param name="input">The 4D input tensor with shape <c>[Batch, Channels, Height, Width]</c>.</param>
+        /// <returns>The output <see cref="ITensor"/> containing the convolved features.</returns>
+        /// <exception cref="ArgumentException">Thrown if the input rank is not 4 or if the input channels do not match <see cref="_inChannels"/>.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the computed spatial dimensions result in a non-positive size.</exception>
 
         public override ITensor Forward(ITensor input)
         {
@@ -126,9 +150,11 @@
                     var gradInputData = new float[capturedInput.Shape.TotalElements];
                     var gradWeightData = new float[capturedWeight.Shape.TotalElements];
 
-                    Parallel.For(0, batch, b =>
+                    // FIXED: Lock-free weight gradient accumulation.
+                    // Each thread 'oc' exclusively owns its segment of 'gradWeightData'.
+                    Parallel.For(0, _outChannels, oc =>
                     {
-                        for (int oc = 0; oc < _outChannels; oc++)
+                        for (int b = 0; b < batch; b++)
                         {
                             for (int oh = 0; oh < outH; oh++)
                             {
@@ -139,28 +165,63 @@
 
                                     for (int ic = 0; ic < _inChannels; ic++)
                                     {
+                                        int wChannelOffset = oc * _inChannels * wStrideC + ic * wStrideC;
                                         for (int kh = 0; kh < _kernelSize; kh++)
                                         {
                                             int ih = oh * _stride - _padding + kh;
                                             if (ih < 0 || ih >= inH) continue;
 
+                                            int wRowOffset = wChannelOffset + kh * _kernelSize;
                                             for (int kw = 0; kw < _kernelSize; kw++)
                                             {
                                                 int iw = ow * _stride - _padding + kw;
                                                 if (iw >= 0 && iw < inW)
                                                 {
                                                     int inIdx = b * _inChannels * inStrideC + ic * inStrideC + ih * inStrideH + iw;
-                                                    int wIdx = oc * _inChannels * wStrideC + ic * wStrideC + kh * _kernelSize + kw;
+                                                    int wIdx = wRowOffset + kw;
 
-                                                    lock (gradWeightData)
-                                                    {
-                                                        gradWeightData[wIdx] += inData[inIdx] * goVal;
-                                                    }
-                                                    lock (gradInputData)
-                                                    {
-                                                        gradInputData[inIdx] += wData[wIdx] * goVal;
-                                                    }
+                                                    gradWeightData[wIdx] += inData[inIdx] * goVal;
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // FIXED: Lock-free input gradient accumulation.
+                    // Each thread (b, ic) exclusively owns its segment of 'gradInputData'.
+                    Parallel.For(0, batch * _inChannels, index =>
+                    {
+                        int b = index / _inChannels;
+                        int ic = index % _inChannels;
+
+                        for (int oc = 0; oc < _outChannels; oc++)
+                        {
+                            int wChannelOffset = oc * _inChannels * wStrideC + ic * wStrideC;
+                            for (int oh = 0; oh < outH; oh++)
+                            {
+                                for (int ow = 0; ow < outW; ow++)
+                                {
+                                    int outIdx = b * _outChannels * outStrideC + oc * outStrideC + oh * outStrideH + ow;
+                                    float goVal = goData[outIdx];
+
+                                    for (int kh = 0; kh < _kernelSize; kh++)
+                                    {
+                                        int ih = oh * _stride - _padding + kh;
+                                        if (ih < 0 || ih >= inH) continue;
+
+                                        int wRowOffset = wChannelOffset + kh * _kernelSize;
+                                        for (int kw = 0; kw < _kernelSize; kw++)
+                                        {
+                                            int iw = ow * _stride - _padding + kw;
+                                            if (iw >= 0 && iw < inW)
+                                            {
+                                                int inIdx = b * _inChannels * inStrideC + ic * inStrideC + ih * inStrideH + iw;
+                                                int wIdx = wRowOffset + kw;
+
+                                                gradInputData[inIdx] += wData[wIdx] * goVal;
                                             }
                                         }
                                     }
@@ -201,6 +262,10 @@
 
             return result;
         }
+        /// <summary>
+        /// Enumerates all learnable parameters associated with this convolutional layer.
+        /// </summary>
+        /// <returns>An enumerable sequence containing the weight tensor and, if configured, the bias tensor.</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

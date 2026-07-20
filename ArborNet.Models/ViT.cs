@@ -1,22 +1,41 @@
-﻿using ArborNet.Core.Functional;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Functional;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements the Vision Transformer (ViT) model for image classification.
+    /// Implements the Vision Transformer (ViT) architecture for image classification tasks.
     /// </summary>
     /// <remarks>
-    /// This implementation follows the architecture described in 
-    /// "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale".
-    /// Images are divided into patches, embedded via convolution, augmented with a 
-    /// learnable class token and positional encodings, then processed through a 
-    /// stack of transformer encoder blocks. The class token is used for final classification.
+    /// <para>
+    /// This implementation follows the architecture described in the paper:
+    /// <see href="https://arxiv.org/abs/2010.11929">"An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale"</see>.
+    /// </para>
+    /// <para>
+    /// Input images are split into fixed-size patches, linearly projected (via a 2D convolution),
+    /// prepended with a learnable class token, augmented with learnable 1D position embeddings,
+    /// and then passed through a standard Transformer Encoder stack. The class token embedding at 
+    /// the output of the transformer is used as the representative vector for the classification head.
+    /// </para>
     /// </remarks>
+
+    #endregion
+
     public class ViT : BaseModel
     {
         /// <summary>
@@ -43,11 +62,12 @@ namespace ArborNet.Models
         /// Final linear classification head that maps the class token embedding to class logits.
         /// </summary>
         private readonly Linear head;
-
         /// <summary>
-        /// Returns all trainable parameters of the ViT model.
+        /// Retrieves all trainable parameters associated with the Vision Transformer model, 
+        /// including layer weights, biases, and learnable embeddings.
         /// </summary>
-        /// <returns>An enumerable collection of all model parameters.</returns>
+        /// <returns>An enumerable collection of parameter tensors (<see cref="ITensor"/>).</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
 
         /// <summary>
@@ -78,12 +98,17 @@ namespace ArborNet.Models
                 parameters.AddRange(b.Parameters());
             parameters.AddRange(head.Parameters());
         }
-
         /// <summary>
-        /// Performs a forward pass through the Vision Transformer model.
+        /// Executes the forward pass of the Vision Transformer model.
         /// </summary>
-        /// <param name="x">Input tensor of shape (batchSize, inChannels, height, width).</param>
-        /// <returns>Output logits tensor of shape (batchSize, numClasses).</returns>
+        /// <param name="x">The input image tensor of shape <c>(BatchSize, Channels, Height, Width)</c>.</param>
+        /// <returns>The computed class logits tensor of shape <c>(BatchSize, NumClasses)</c>.</returns>
+        /// <remarks>
+        /// The input images are first projected to sequence patches. A learnable class token is 
+        /// prepended, positional encodings are added, and the tokens are passed through the transformer encoder blocks.
+        /// Finally, the class token representation is sliced out and passed to the classification head.
+        /// </remarks>
+
         public override ITensor Forward(ITensor x)
         {
             int batchSize = x.Shape[0];
@@ -104,7 +129,7 @@ namespace ArborNet.Models
                 x = block.Forward(x);
 
             // Take CLS token
-            var cls = x.Slice((0, batchSize, 1), (0, 1, 1)).Reshape(batchSize, x.Shape[1]);
+            var cls = x.Slice((0, batchSize, 1), (0, 1, 1), (0, x.Shape[2], 1)).Reshape(batchSize, x.Shape[2]);
             return head.Forward(cls);
         }
     }

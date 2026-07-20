@@ -1,19 +1,33 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Layers;
-using System;
-using System.Buffers;
-using System.Collections;
-using System.Collections.Generic;
-using System.Data;
-using System.Threading.Tasks;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Layers;
+    using System;
+    using System.Buffers;
+    using System.Collections;
+    using System.Collections.Generic;
+    using System.Data;
+    using System.Threading.Tasks;
     /// <summary>
     /// Highly optimized Subquadratic Sparse Attention (SSA) Layer.
     /// Reduces memory and computational complexity from O(N^2) to O(N) using feature-map linear attention.
     /// Ideal for processing extremely long context sequences.
     /// </summary>
+
+    #endregion
+
     public sealed class SubquadraticAttentionLayer
     {
         private readonly int _headCount;
@@ -31,19 +45,23 @@ namespace ArborNet.Layers
             _headCount = headCount;
             _headDim = headDim;
         }
-
         /// <summary>
         /// Applies the ELU + 1 feature map to ensure strictly positive values,
         /// which allows bypassing the Softmax denominator bottleneck.
         /// </summary>
+        /// <param name="x">The input value to be mapped.</param>
+        /// <returns>The mapped value, guaranteed to be strictly positive.</returns>
+
         private static float FeatureMap(float x)
         {
             return x > 0f ? x + 1f : MathF.Exp(x);
         }
-
         /// <summary>
         /// Derivative of the ELU + 1 feature map.
         /// </summary>
+        /// <param name="x">The input value at which to evaluate the derivative.</param>
+        /// <returns>The derivative value of the feature map at <paramref name="x"/>.</returns>
+
         private static float FeatureMapGrad(float x)
         {
             return x > 0f ? 1f : MathF.Exp(x);

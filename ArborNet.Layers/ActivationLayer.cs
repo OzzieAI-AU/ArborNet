@@ -1,18 +1,32 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Layers;
-using System;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using System;
+    using System.Collections.Generic;
     /// <summary>
     /// Represents a neural network layer that applies a non-linear activation function to an input tensor.
     /// </summary>
     /// <remarks>
-    /// This layer is parameter-free and simply wraps an <see cref="IActivation"/> implementation,
-    /// delegating the forward computation to it. It is typically used to introduce non-linearity
-    /// between other computational layers in a network.
+    /// This layer is parameter-free and acts as a wrapper around an <see cref="IActivation"/> implementation.
+    /// It delegates the forward propagation pass directly to the encapsulated activation function.
+    /// Typically used to introduce non-linearity into the network model without introducing extra learnable weights.
     /// </remarks>
+
+    #endregion
+
     public class ActivationLayer : BaseLayer
     {
         /// <summary>
@@ -25,18 +39,20 @@ namespace ArborNet.Layers
         /// </summary>
         /// <param name="activation">The activation function to apply in this layer.</param>
         public ActivationLayer(IActivation activation) => _activation = activation;
-
         /// <summary>
-        /// Performs a forward pass by applying the configured activation function to the input tensor.
+        /// Executes the forward propagation step of this layer, applying the activation function to the provided input tensor.
         /// </summary>
-        /// <param name="x">The input tensor from the previous layer.</param>
-        /// <returns>The output tensor after applying the activation function.</returns>
+        /// <param name="x">The input tensor (<see cref="ITensor"/>) containing the pre-activation values from the preceding layer.</param>
+        /// <returns>An <see cref="ITensor"/> containing the post-activation values.</returns>
+
         public override ITensor Forward(ITensor x) => _activation.Forward(x);
-
         /// <summary>
-        /// Returns the trainable parameters of this layer.
+        /// Retrieves the collection of trainable parameters (weights and biases) associated with this layer.
         /// </summary>
-        /// <returns>An empty collection, because activation layers do not contain trainable parameters.</returns>
+        /// <returns>
+        /// An empty enumerable of <see cref="ITensor"/>, as this activation layer does not maintain any trainable parameters.
+        /// </returns>
+
         public override IEnumerable<ITensor> Parameters() => Array.Empty<ITensor>();
     }
 }

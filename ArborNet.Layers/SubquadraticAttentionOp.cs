@@ -1,15 +1,29 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.ML.Layers
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using System;
+    using System.Collections.Generic;
+    using System.Threading.Tasks;
     /// <summary>
     /// Mathematically rigorous, autograd-compliant O(N) Subquadratic Linear Attention Operation.
     /// Eliminates the memory footprint of standard attention while maintaining complete backpropagation capabilities.
     /// </summary>
+
+    #endregion
+
     public sealed class SubquadraticAttentionOp : IAutogradOperation
     {
         private readonly int _headCount;
@@ -28,9 +42,25 @@ namespace ArborNet.ML.Layers
             _headDim = headDim;
             _dModel = dModel;
         }
+        /// <summary>
+        /// Computes the non-negative feature map used to linearize the attention kernel mechanism.
+        /// </summary>
+        /// <param name="x">The input activation value.</param>
+        /// <returns>A non-negative activation mapping value using an ELU-like formulation.</returns>
 
         private static float FeatureMap(float x) => x > 0f ? x + 1f : MathF.Exp(x);
+        /// <summary>
+        /// Computes the gradient of the feature map function.
+        /// </summary>
+        /// <param name="x">The input activation value.</param>
+        /// <returns>The derivative of the feature map at the specified activation value.</returns>
         private static float FeatureMapGrad(float x) => x > 0f ? 1f : MathF.Exp(x);
+        /// <summary>
+        /// Executes the forward pass of the subquadratic attention operation.
+        /// </summary>
+        /// <param name="inputs">The input tensors. Expected order: Query (Q) at index 0, Key (K) at index 1, and Value (V) at index 2.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the contextualized attention representation.</returns>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the inputs array does not contain the required tensors.</exception>
 
         public ITensor Forward(params ITensor[] inputs)
         {
@@ -106,6 +136,12 @@ namespace ArborNet.ML.Layers
 
             return Tensor.FromArray(Output, Q_tensor.Shape, Q_tensor.Device);
         }
+        /// <summary>
+        /// Executes the backward pass, backpropagating the incoming loss gradients with respect to the input Query, Key, and Value tensors.
+        /// </summary>
+        /// <param name="gradOutput">The gradient of the loss with respect to the output of this operation.</param>
+        /// <returns>A list containing the computed gradients for the Query, Key, and Value inputs respectively.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if backward is executed without a preceding and matching forward pass.</exception>
 
         public IList<ITensor?> Backward(ITensor gradOutput)
         {

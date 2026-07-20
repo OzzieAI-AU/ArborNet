@@ -1,36 +1,56 @@
-﻿namespace ArborNet.Core.Devices
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Core.Devices
 {
+
+
+
+    #region
+    #endregion
+
+
     /// <summary>
-    /// Represents the type of compute device that can be used for operations within ArborNet.
+    /// Specifies the type of computational device used for executing operations within the ArborNet framework.
     /// </summary>
     /// <remarks>
-    /// This enumeration is used throughout the framework to specify the target hardware
-    /// for computational workloads, enabling seamless switching between CPU and GPU acceleration.
+    /// This enumeration is utilized throughout the system to target specific hardware backends, 
+    /// enabling seamless runtime switching between standard host execution (CPU) and various 
+    /// hardware-accelerated graphics processing units (GPUs).
     /// </remarks>
     public enum DeviceType
     {
         /// <summary>
-        /// The system's central processing unit (CPU).
+        /// The system's Central Processing Unit (CPU).
         /// </summary>
         /// <remarks>
-        /// Provides broad compatibility but typically offers lower parallel performance
-        /// compared to GPU devices for deep learning and high-throughput workloads.
+        /// Serves as the default fallback device. Provides maximum compatibility and direct access 
+        /// to host system memory, but generally yields lower throughput for highly parallelized 
+        /// tensor and deep learning workloads compared to dedicated accelerator hardware.
         /// </remarks>
         CPU,
 
         /// <summary>
-        /// A CUDA-enabled NVIDIA GPU device.
+        /// An NVIDIA Graphics Processing Unit (GPU) utilizing the CUDA platform.
         /// </summary>
         /// <remarks>
-        /// Utilizes the NVIDIA CUDA platform for hardware-accelerated computations.
+        /// Enables hardware-accelerated computations by targeting NVIDIA's Compute Unified Device Architecture. 
+        /// Requires a compatible NVIDIA GPU and the appropriate CUDA driver/runtime environment.
         /// </remarks>
         CUDA,
 
         /// <summary>
-        /// A ROCm-enabled AMD GPU device.
+        /// An AMD Graphics Processing Unit (GPU) utilizing the ROCm platform.
         /// </summary>
         /// <remarks>
-        /// Utilizes the AMD ROCm platform for hardware-accelerated computations.
+        /// Enables hardware-accelerated computations by targeting AMD's Radeon Open Compute platform. 
+        /// Requires a compatible AMD GPU and the ROCm runtime environment.
         /// </remarks>
         ROCm
     }

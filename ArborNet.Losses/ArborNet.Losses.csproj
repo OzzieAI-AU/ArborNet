@@ -26,7 +26,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
-    <ProjectReference Include="..\ArborNet.Fluent\ArborNet.Fluent.csproj" />
   </ItemGroup>
 
 </Project>

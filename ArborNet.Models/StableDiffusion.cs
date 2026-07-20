@@ -1,19 +1,35 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Core.Tensors;
-using ArborNet.Models;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Models;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements the Stable Diffusion model by combining a Variational Autoencoder (VAE)
-    /// for latent space operations with a U-Net for the diffusion process.
+    /// Implements the Stable Diffusion model, a latent diffusion model (LDM) architecture
+    /// designed for high-resolution image synthesis and manipulation.
     /// </summary>
     /// <remarks>
-    /// This class inherits from <see cref="BaseModel"/> and aggregates trainable parameters
-    /// from both the VAE and U-Net components. The forward pass is delegated to the U-Net.
+    /// This model integrates a Variational Autoencoder (VAE) to compress images into a low-dimensional
+    /// latent space, and a U-Net architecture to perform the iterative denoising process (diffusion)
+    /// within that latent space. It inherits from <see cref="BaseModel"/> and aggregates the trainable
+    /// parameters of both sub-networks.
     /// </remarks>
+
+    #endregion
+
     public class StableDiffusion : BaseModel
     {
 
@@ -27,11 +43,14 @@ namespace ArborNet.Models
         /// The U-Net component that performs the core noise prediction in the latent diffusion process.
         /// </summary>
         private readonly UNet unet;
-
         /// <summary>
-        /// Returns all trainable parameters from both the VAE and U-Net submodels.
+        /// Retrieves all trainable parameter tensors from both the internal Variational Autoencoder (VAE) 
+        /// and U-Net components.
         /// </summary>
-        /// <returns>A collection containing all model parameters as <see cref="ITensor"/> instances.</returns>
+        /// <returns>
+        /// An <see cref="IEnumerable{ITensor}"/> sequence containing all parameters of the combined model.
+        /// </returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
 
         /// <summary>
@@ -49,12 +68,15 @@ namespace ArborNet.Models
             parameters.AddRange(vae.Parameters());
             parameters.AddRange(unet.Parameters());
         }
-
         /// <summary>
-        /// Performs the forward pass of the Stable Diffusion model.
+        /// Performs the forward pass of the Stable Diffusion model by routing the input through 
+        /// the noise-prediction U-Net component.
         /// </summary>
-        /// <param name="input">The input tensor, typically a latent representation or noise tensor.</param>
-        /// <returns>The output tensor produced by the U-Net component.</returns>
+        /// <param name="input">The input latent tensor representation, typically representing noisy latents.</param>
+        /// <returns>
+        /// An <see cref="ITensor"/> containing the predicted noise or processed latent output from the U-Net.
+        /// </returns>
+
         public override ITensor Forward(ITensor input)
         {
             return unet.Forward(input);

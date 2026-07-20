@@ -1,19 +1,44 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
-    /// Implements the Whisper model architecture for automatic speech recognition.
-    /// Combines convolutional feature extraction with a transformer-based audio encoder
-    /// and includes decoder components (embedding, positional encoding, transformer blocks, and output head).
+    /// Represents the Whisper model architecture designed for automatic speech recognition (ASR) and speech translation.
+    /// This implementation combines a convolutional neural network (CNN) frontend for feature extraction from audio spectrograms 
+    /// with a transformer-based encoder-decoder architecture.
     /// </summary>
     /// <remarks>
-    /// The current <see cref="Forward(ITensor)"/> implementation performs audio encoding only.
-    /// Decoder components are initialized and registered as parameters for future full encoder-decoder usage.
+    /// <para>
+    /// The architecture consists of:
+    /// <list type="bullet">
+    /// <item><description>A convolutional frontend (two 1D convolutional layers with ReLU activations) to subsample the input audio representation.</description></item>
+    /// <item><description>A Transformer encoder that processes the downsampled audio features.</description></item>
+    /// <item><description>A Transformer decoder that autoregressively generates text tokens guided by the encoder's hidden states.</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Note: The current <see cref="Forward(ITensor)"/> implementation focuses on the audio encoder forward pass. 
+    /// The decoder blocks, embeddings, positional encodings, and output head are fully initialized and registered to ensure parameter tracking 
+    /// and compatibility with complete sequence-to-sequence training and inference workflows.
+    /// </para>
     /// </remarks>
+
+    #endregion
+
     public class Whisper : BaseModel
     {
         /// <summary>
@@ -45,11 +70,12 @@ namespace ArborNet.Models
         /// Final linear projection layer mapping decoder hidden states to vocabulary logits.
         /// </summary>
         private readonly Linear head;
-
         /// <summary>
-        /// Returns all trainable parameters of the Whisper model.
+        /// Retrieves all trainable parameters (weights, biases, etc.) associated with this model,
+        /// including those of the convolutional frontend, the encoder stack, the decoder stack, embeddings, and the projection head.
         /// </summary>
-        /// <returns>An enumerable collection of all <see cref="ITensor"/> parameters registered in the model.</returns>
+        /// <returns>An <see cref="IEnumerable{ITensor}"/> containing all registered parameters of the model.</returns>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
 
         /// <summary>
@@ -90,12 +116,19 @@ namespace ArborNet.Models
             foreach (var b in decoder) parameters.AddRange(b.Parameters());
             parameters.AddRange(head.Parameters());
         }
-
         /// <summary>
-        /// Performs the forward pass through the audio encoder portion of the Whisper model.
+        /// Executes the forward pass of the audio encoder pipeline.
         /// </summary>
-        /// <param name="input">Input tensor representing a batch of mel spectrograms with shape (batch, nMel, time).</param>
-        /// <returns>The encoded audio features after convolution and transformer encoder processing.</returns>
+        /// <param name="input">
+        /// An <see cref="ITensor"/> representing the input Mel-spectrogram. 
+        /// Expected tensor shape is <c>(batch_size, nMel, time_steps)</c>.
+        /// </param>
+        /// <returns>
+        /// An <see cref="ITensor"/> representing the encoded audio features. 
+        /// The tensor is transposed to shape <c>(batch_size, downsampled_time_steps, nAudioState)</c> 
+        /// ready for consumption by the decoder or downstream tasks.
+        /// </returns>
+
         public override ITensor Forward(ITensor input)
         {
             var x = conv1.Forward(input).Relu();

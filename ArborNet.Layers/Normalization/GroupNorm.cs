@@ -1,14 +1,34 @@
-﻿using ArborNet.Core.Interfaces;
-using ArborNet.Core.Tensors;
-using System;
-using System.Linq;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Layers.Normalization
 {
+
+    #region Using Statements:
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    using System;
+    using System.Linq;
     /// <summary>
     /// Production-grade Group Normalization with a fully differentiable analytical backward pass.
     /// Divides channels into groups and normalizes independently within each group.
     /// </summary>
+    /// <remarks>
+    /// This layer implements Group Normalization (GN) as described in the paper:
+    /// "Group Normalization" by Yuxin Wu and Kaiming He (https://arxiv.org/abs/1803.08494).
+    /// Group Normalization acts as an alternative to Batch Normalization by dividing channels into groups 
+    /// and calculating mean and variance statistics within each group, making it independent of batch size.
+    /// </remarks>
+
+    #endregion
+
     public class GroupNorm : BaseNormalization
     {
         private readonly int _numChannels;
@@ -29,6 +49,11 @@ namespace ArborNet.Layers.Normalization
             _numGroups = numGroups;
             _channelsPerGroup = numChannels / numGroups;
         }
+        /// <summary>
+        /// Executes the forward pass of Group Normalization by dividing channels into groups and normalizing each group independently.
+        /// </summary>
+        /// <param name="input">The input tensor to normalize. Assumed to have dimensions starting with [Batch, Channels, ...].</param>
+        /// <returns>A new <see cref="ITensor"/> containing the group-normalized activations.</returns>
 
         protected override ITensor Normalize(ITensor input)
         {
@@ -49,6 +74,13 @@ namespace ArborNet.Layers.Normalization
             // Reshape back to input's original shape
             return _cachedNormalized.Reshape(input.Shape.Dimensions);
         }
+        /// <summary>
+        /// Computes the gradient of the loss with respect to the input tensor using an analytical differentiable backward pass.
+        /// </summary>
+        /// <param name="input">The original input tensor from the forward pass.</param>
+        /// <param name="gradOutput">The gradient of the loss with respect to the output of this layer.</param>
+        /// <returns>The gradient of the loss with respect to the input tensor.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the backward pass is invoked before running the forward pass.</exception>
 
         protected override ITensor ComputeGradInput(ITensor input, ITensor gradOutput)
         {

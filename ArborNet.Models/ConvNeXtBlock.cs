@@ -1,20 +1,45 @@
-﻿using ArborNet.Activations;
-using ArborNet.Core;
-using ArborNet.Core.Interfaces;
-using ArborNet.Core.Models;
-using ArborNet.Layers;
-using System.Collections.Generic;
+﻿// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
 
 namespace ArborNet.Models
 {
+
+    #region Using Statements:
+
+    using ArborNet.Activations;
+    using ArborNet.Core;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
     /// <summary>
     /// Implements a ConvNeXt block as described in the ConvNeXt architecture.
     /// </summary>
     /// <remarks>
-    /// A ConvNeXt block consists of a depthwise 7x7 convolution followed by an inverted-bottleneck
-    /// MLP (pointwise linear layers with GELU activation), with LayerNorm applied before each
-    /// major component and a residual connection around the entire block.
+    /// <para>
+    /// A ConvNeXt block modernizes standard convolutional networks by incorporating design principles
+    /// from Vision Transformers (ViTs). It consists of a depthwise 7x7 convolution followed by an 
+    /// inverted-bottleneck Multi-Layer Perceptron (MLP) containing pointwise linear layers and 
+    /// a GELU activation function.
+    /// </para>
+    /// <para>
+    /// Layer Normalization is applied before each major component, and a residual connection is maintained
+    /// around the entire block to facilitate training convergence in deep architectures.
+    /// </para>
     /// </remarks>
+    /// <seealso cref="BaseModel" />
+    /// <seealso cref="LayerNorm" />
+    /// <seealso cref="Conv2D" />
+    /// <seealso cref="Linear" />
+
+    #endregion
+
     public class ConvNeXtBlock : BaseModel
     {
         /// <summary>
@@ -60,16 +85,19 @@ namespace ArborNet.Models
             parameters.AddRange(pw1.Parameters());
             parameters.AddRange(pw2.Parameters());
         }
-
         /// <summary>
         /// Performs a forward pass through the ConvNeXt block.
         /// </summary>
-        /// <param name="x">The input tensor.</param>
-        /// <returns>The output tensor after applying the block with residual connection.</returns>
+        /// <param name="x">The input tensor containing the feature maps.</param>
+        /// <returns>A new <see cref="ITensor"/> containing the residual sum of the input and block outputs.</returns>
         /// <remarks>
-        /// The forward computation follows the structure:
-        /// x = x + pw2(GELU(pw1(LN2(DWConv(LN1(x))))))
+        /// The forward computation follows the structured sequence:
+        /// <code>
+        /// Output = x + pw2(GELU(pw1(LN2(DWConv(LN1(x))))))
+        /// </code>
+        /// and preserves the input spatial and channel dimensions.
         /// </remarks>
+
         public override ITensor Forward(ITensor x)
         {
             var residual = x;
@@ -80,11 +108,15 @@ namespace ArborNet.Models
             x = pw2.Forward(x);
             return x.Add(residual);
         }
-
         /// <summary>
-        /// Returns all trainable parameters used within this ConvNeXt block.
+        /// Retrieves all trainable parameter tensors associated with this ConvNeXt block's sub-layers.
         /// </summary>
-        /// <returns>A collection containing all parameters from the contained layers.</returns>
+        /// <returns>An enumerable collection of <see cref="ITensor"/> objects representing the model's parameters.</returns>
+        /// <remarks>
+        /// The returned parameters include the weights and biases of the LayerNorm layers, 
+        /// depthwise convolutions, and pointwise projections.
+        /// </remarks>
+
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
 }

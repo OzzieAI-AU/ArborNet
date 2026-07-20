@@ -1,0 +1,15 @@
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.AssemblyInfoInputs.cache
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.AssemblyInfo.cs
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.csproj.CoreCompileInputs.cache
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\bin\Debug\net10.0\ArborNet.Quantization.deps.json
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\bin\Debug\net10.0\ArborNet.Quantization.dll
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\bin\Debug\net10.0\ArborNet.Quantization.pdb
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\bin\Debug\net10.0\ArborNet.Core.dll
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\bin\Debug\net10.0\ArborNet.Core.pdb
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.csproj.AssemblyReference.cache
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.D17AE1B3.Up2Date
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.dll
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\refint\ArborNet.Quantization.dll
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ArborNet.Quantization.pdb
+C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet.Quantization\obj\Debug\net10.0\ref\ArborNet.Quantization.dll
