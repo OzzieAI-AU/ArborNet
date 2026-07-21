@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -8,10 +9,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Data\ArborNet.Data.csproj" />
+    <ProjectReference Include="..\ArborNet.Fluent\ArborNet.Fluent.csproj" />
     <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
     <ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
     <ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
     <ProjectReference Include="..\ArborNet.Optimizers\ArborNet.Optimizers.csproj" />
+    <ProjectReference Include="..\ArborNet.Quantization\ArborNet.Quantization.csproj" />
   </ItemGroup>
 
 </Project>

@@ -14,7 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
-    <ProjectReference Include="..\ArborNet.Fluent\ArborNet.Fluent.csproj" />
     <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
     <ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
   </ItemGroup>

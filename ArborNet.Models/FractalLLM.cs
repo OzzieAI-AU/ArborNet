@@ -15,18 +15,18 @@ namespace ArborNet.Models
     using ArborNet.Core;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Models;
-    using ArborNet.Fluent;
     using ArborNet.Core.Initializers;
     using ArborNet.Layers.Fractal;
     using System;
     using System.Collections.Generic;
+    using ArborNet.Core.Tensors;
+
+    #endregion
+
     /// <summary>
     /// An advanced Large Language Model combining structured Fractal Weight Initialization
     /// with O(N) Subquadratic Sparse Attention. Completely native to ArborNet.
     /// </summary>
-
-    #endregion
-
     public class FractalLLM : BaseModel
     {
         private readonly FractalLinear _tokenEmbedding;
@@ -62,49 +62,47 @@ namespace ArborNet.Models
             foreach (var layer in _layers) parameters.AddRange(layer.Parameters());
             parameters.AddRange(_outputHead.Parameters());
         }
+
         /// <summary>
-        /// Highly expressive Fluent Forward Pass execution flow.
+        /// Native Forward Pass execution flow.
         /// </summary>
         /// <param name="input">An input tensor of shape [batch, seqLen, vocabSize] containing one-hot encoded sequence indices.</param>
         /// <returns>The raw logit predictions tensor of shape [batch, seqLen, vocabSize].</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="input"/> is null.</exception>
-
         public override ITensor Forward(ITensor input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
 
-            // Assume input is one-hot encoded sequence: [batch, seqLen, vocabSize]
-            var x = X.Of(input);
-
             // 1. Fractal Token Embedding
-            x = x.Apply(_tokenEmbedding);
+            ITensor x = _tokenEmbedding.Forward(input);
 
             // 2. Transformer Blocks (Subquadratic Attention + FFN)
             foreach (var block in _layers)
             {
-                x = x.Apply(block);
+                x = block.Forward(x);
             }
 
-            // 3. Final Layer Norm
-            x = x.LayerNorm();
+            // 3. Final Layer Norm (Native instantiation)
+            var layerNorm = new ArborNet.Layers.Normalization.LayerNorm(new[] { x.Shape[x.Shape.Rank - 1] });
+            layerNorm.To(input.Device);
+            x = layerNorm.Forward(x);
 
-            // 4. Custom Variance Modulation (As seen in the original FractalLLMT script)
-            // We apply a mathematically precise modulation just before the logits
-            x = ApplyVarianceModulator(x.Tensor);
+            // 4. Custom Variance Modulation
+            x = ApplyVarianceModulator(x);
 
             // 5. Output Projection to Vocabulary space
-            var logits = x.Apply(_outputHead);
+            ITensor logits = _outputHead.Forward(x);
 
-            return logits.Tensor;
+            return logits;
         }
+
         /// <summary>
         /// Extracts dynamic variance and scales the token structural signature.
         /// Built entirely using native ArborNet ITensor primitives.
         /// </summary>
         /// <param name="stateVector">The input hidden state tensor to undergo variance modulation.</param>
-        /// <returns>A fluent tensor wrapper representing the scaled structural state.</returns>
-
-        private X ApplyVarianceModulator(ITensor stateVector)
+        /// <returns>A tensor representing the scaled structural state.</returns>
+        private ITensor ApplyVarianceModulator(ITensor stateVector)
         {
             // 1. Mean across the embedding dimension (axis -1)
             ITensor mean = stateVector.Mean(-1);
@@ -115,18 +113,17 @@ namespace ArborNet.Models
             ITensor variance = diffSq.Mean(-1);
 
             // 3. Signature = variance * 15.0f
-            // Convert the primitive float into an ArborNet scalar tensor first!
-            ITensor intensityScalar = ArborNet.Core.Tensors.Tensor.FromScalar(_varianceSignatureIntensity);
+            ITensor intensityScalar = ArborNet.Core.Tensors.Tensor.FromScalar(_varianceSignatureIntensity, stateVector.Device);
             ITensor signature = variance.Multiply(intensityScalar);
 
             // 4. Apply structural signature mapping
-            return (stateVector.Multiply(signature)).ToX();
+            return stateVector.Multiply(signature);
         }
+
         /// <summary>
         /// Retrieves the complete list of optimizable parameters (tensors) registered in this model.
         /// </summary>
         /// <returns>An enumerable collection of autograd parameters.</returns>
-
         public override IEnumerable<ITensor> Parameters() => parameters;
     }
 }
