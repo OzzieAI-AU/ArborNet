@@ -51,6 +51,7 @@ namespace ArborNet.Optimizers
             _eps = eps;
             _weightDecay = weightDecay;
         }
+        
         /// <summary>
         /// Performs a single optimization step and updates the provided parameter tensors in-place.
         /// </summary>
@@ -106,12 +107,12 @@ namespace ArborNet.Optimizers
                 _state[p] = (m, v);
             }
         }
+        
         /// <summary>
         /// Resets the gradients of all active parameter tensors to <see langword="null"/>.
         /// </summary>
         /// <param name="parameters">An enumerable of <see cref="ITensor"/> parameters whose gradients should be cleared.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="parameters"/> is <see langword="null"/>.</exception>
-
         public void ZeroGrad(IEnumerable<ITensor> parameters)
         {
             if (parameters == null) throw new ArgumentNullException(nameof(parameters));
@@ -119,7 +120,7 @@ namespace ArborNet.Optimizers
             {
                 if (param != null && param.RequiresGrad)
                 {
-                    param.Grad = null;
+                    param.Grad = Tensor.Zeros(param.Shape, param.Device);
                 }
             }
         }

@@ -95,7 +95,9 @@ namespace ArborNet.Activations
                 {
                     var tanhSq = output.Multiply(output);
                     var oneMinusTanhSq = one.Subtract(tanhSq);
-                    return gradOutput.Multiply(oneMinusTanhSq);
+                    var gradInput = gradOutput.Multiply(oneMinusTanhSq);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

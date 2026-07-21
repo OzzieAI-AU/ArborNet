@@ -98,7 +98,6 @@ namespace ArborNet.Optimizers
         /// </summary>
         /// <param name="parameters">An enumerable of <see cref="ITensor"/> parameters whose gradients are to be cleared.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="parameters"/> is null.</exception>
-
         public void ZeroGrad(IEnumerable<ITensor> parameters)
         {
             if (parameters == null) throw new ArgumentNullException(nameof(parameters));
@@ -106,7 +105,7 @@ namespace ArborNet.Optimizers
             {
                 if (param != null && param.RequiresGrad)
                 {
-                    param.Grad = null;
+                    param.Grad = Tensor.Zeros(param.Shape, param.Device);
                 }
             }
         }

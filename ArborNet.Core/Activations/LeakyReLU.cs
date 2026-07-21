@@ -130,9 +130,10 @@ namespace ArborNet.Activations
             {
                 output.GradFn = gradOutput =>
                 {
-                    // Gradient is 1 where input > 0, otherwise negativeSlope
                     var gradMask = mask.Add(mask.Negate().Multiply(negativeSlope));
-                    return gradOutput.Multiply(gradMask);
+                    var gradInput = gradOutput.Multiply(gradMask);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

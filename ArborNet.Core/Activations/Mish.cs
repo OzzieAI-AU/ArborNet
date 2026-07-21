@@ -95,7 +95,12 @@ namespace ArborNet.Activations
 
             if (input.RequiresGrad)
             {
-                result.GradFn = gradOutput => ComputeGrad(input, tanh_softplus, isLarge, gradOutput);
+                result.GradFn = gradOutput =>
+                {
+                    var gradInput = ComputeGrad(input, tanh_softplus, isLarge, gradOutput);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
+                };
             }
 
             return result;

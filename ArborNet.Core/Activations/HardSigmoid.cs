@@ -89,7 +89,9 @@ namespace ArborNet.Activations
                 {
                     var mask = input.GreaterThan(Tensor.FromScalar(-3f, input.Device))
                                    .Multiply(input.LessEqual(Tensor.FromScalar(3f, input.Device)));
-                    return gradOutput.Multiply(mask.Divide(6f));
+                    var gradInput = gradOutput.Multiply(mask.Divide(6f));
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

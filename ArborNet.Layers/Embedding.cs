@@ -10,114 +10,140 @@
 namespace ArborNet.Layers
 {
 
+
     #region Using Statements:
 
     using ArborNet.Core.Functional;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Layers;
+    using ArborNet.Core.Native.PInvoke;
     using ArborNet.Core.Tensors;
     using System;
     using System.Collections.Generic;
-    /// <summary>
-    /// Represents a thread-safe categorical embedding table layer that maps integer indices to dense vectors.
-    /// </summary>
+    using System.Threading.Tasks;
+
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Backends;
+
 
     #endregion
 
+    /// <summary>
+    /// Represents a thread-safe categorical embedding table layer that maps integer indices to dense vectors.
+    /// </summary>
     public class Embedding : BaseLayer
     {
         private ITensor _weights;
-        /// <summary>
-        /// Gets the size of the dictionary of embeddings (vocabulary size).
-        /// </summary>
         public int NumEmbeddings { get; }
-        /// <summary>
-        /// Gets the size of each embedding vector.
-        /// </summary>
         public int EmbeddingDim { get; }
 
         public Embedding(int numEmbeddings, int embeddingDim)
         {
             NumEmbeddings = numEmbeddings;
             EmbeddingDim = embeddingDim;
-            _weights = Initializers.Normal(new TensorShape(numEmbeddings, embeddingDim));
+
+            this.device = Device.CUDA;
+            if (this.device.Type == DeviceType.CUDA && !CUDA.IsAvailable())
+            {
+                this.device = Device.CPU;
+            }
+
+            _weights = Initializers.Normal(new TensorShape(numEmbeddings, embeddingDim), this.device);
             _weights.RequiresGrad = true;
         }
-        /// <summary>
-        /// Performs the forward pass of the embedding layer, mapping input indices to their corresponding embedding vectors.
-        /// </summary>
-        /// <param name="indices">A tensor containing index values to retrieve from the embedding table.</param>
-        /// <returns>A tensor containing the retrieved embedding vectors with the additional embedding dimension appended.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="indices"/> is null.</exception>
-        /// <exception cref="IndexOutOfRangeException">Thrown when an index in <paramref name="indices"/> is out of bounds for the vocabulary size.</exception>
 
         public override ITensor Forward(ITensor indices)
         {
-            if (indices == null) throw new ArgumentNullException(nameof(indices));
+            ValidateInput(indices);
 
-            float[] idxData = indices.ToArray();
-            float[] wData = _weights.ToArray();
-            float[] outData = new float[idxData.Length * EmbeddingDim];
+            var outShapeList = new List<int>(indices.Shape.Dimensions) { EmbeddingDim };
+            var outShape = new TensorShape(outShapeList.ToArray());
 
-            for (int i = 0; i < idxData.Length; i++)
+            if (indices.Device.Type == DeviceType.CUDA && CUDA.IsAvailable())
             {
-                int tokenIdx = (int)idxData[i];
-                if (tokenIdx < 0 || tokenIdx >= NumEmbeddings)
-                    throw new IndexOutOfRangeException($"Token index {tokenIdx} is out of bounds for vocab size {NumEmbeddings}.");
+                var idxRaw = Tensor.Unwrap(indices) as CudaBackend ?? throw new InvalidOperationException("Indices must reside on CUDA GPU.");
+                var wRaw = Tensor.Unwrap(_weights) as CudaBackend ?? throw new InvalidOperationException("Weights must reside on CUDA GPU.");
 
-                int wOffset = tokenIdx * EmbeddingDim;
-                int outOffset = i * EmbeddingDim;
+                var result = new Tensor(new CudaBackend(outShape, _weights.RequiresGrad, indices.Device));
+                var resRaw = Tensor.Unwrap(result) as CudaBackend ?? throw new InvalidOperationException("Result initialization failed.");
 
-                for (int d = 0; d < EmbeddingDim; d++)
+                CUDA.NativeEmbedding(wRaw.DevicePointer, idxRaw.DevicePointer, resRaw.DevicePointer, NumEmbeddings, EmbeddingDim, indices.Shape.TotalElements);
+
+                if (_weights.RequiresGrad)
                 {
-                    outData[outOffset + d] = wData[wOffset + d];
-                }
-            }
+                    var capturedIndices = idxRaw;
+                    var capturedWeights = wRaw;
+                    int numWords = NumEmbeddings;
+                    int embedDim = EmbeddingDim;
+                    int totalIndices = indices.Shape.TotalElements;
 
-            var outputShapeList = new List<int>(indices.Shape.Dimensions) { EmbeddingDim };
-            var result = Tensor.FromArray(outData, new TensorShape(outputShapeList.ToArray()), indices.Device);
-
-            if (_weights.RequiresGrad)
-            {
-                var capturedIndices = indices;
-                var capturedWeights = _weights;
-
-                result.GradFn = gradOut =>
-                {
-                    float[] goData = gradOut.ToArray();
-                    float[] indicesArray = capturedIndices.ToArray();
-                    float[] gradWeightsData = new float[capturedWeights.Shape.TotalElements];
-
-                    for (int i = 0; i < indicesArray.Length; i++)
+                    result.GradFn = gradOut =>
                     {
-                        int tokenIdx = (int)indicesArray[i];
-                        if (tokenIdx >= 0 && tokenIdx < NumEmbeddings)
-                        {
-                            int wOffset = tokenIdx * EmbeddingDim;
-                            int outOffset = i * EmbeddingDim;
+                        var goRaw = Tensor.Unwrap(gradOut) as CudaBackend ?? throw new InvalidOperationException("Upstream gradient must be on CUDA GPU.");
 
-                            for (int d = 0; d < EmbeddingDim; d++)
+                        var gradWeights = new Tensor(new CudaBackend(capturedWeights.Shape, false, gradOut.Device));
+                        var gwRaw = Tensor.Unwrap(gradWeights) as CudaBackend ?? throw new InvalidOperationException("Gradient allocation failed.");
+                        CUDA.CudaMemset(gwRaw.DevicePointer, 0, (ulong)capturedWeights.Shape.TotalElements * sizeof(float));
+
+                        CUDA.NativeEmbeddingGrad(goRaw.DevicePointer, capturedIndices.DevicePointer, gwRaw.DevicePointer, numWords, embedDim, totalIndices);
+
+                        capturedWeights.AccumulateGrad(gradWeights);
+                        return Tensor.Zeros(capturedIndices.Shape, capturedIndices.Device);
+                    };
+                }
+
+                return result;
+            }
+            else
+            {
+                // HIGH-PERFORMANCE PARALLEL CPU FALLBACK
+                float[] idxData = indices.ToArray();
+                float[] wData = _weights.ToArray();
+                float[] outData = new float[outShape.TotalElements];
+
+                int totalIndices = indices.Shape.TotalElements;
+
+                Parallel.For(0, totalIndices, i =>
+                {
+                    int token = (int)idxData[i];
+                    if (token >= 0 && token < NumEmbeddings)
+                    {
+                        Array.Copy(wData, token * EmbeddingDim, outData, i * EmbeddingDim, EmbeddingDim);
+                    }
+                });
+
+                var result = Tensor.FromArray(outData, outShape, indices.Device);
+
+                if (_weights.RequiresGrad)
+                {
+                    var capturedIndices = indices;
+                    var capturedWeights = _weights;
+
+                    result.GradFn = gradOut =>
+                    {
+                        float[] goData = gradOut.ToArray();
+                        float[] gwData = new float[capturedWeights.Shape.TotalElements];
+
+                        for (int i = 0; i < totalIndices; i++)
+                        {
+                            int token = (int)idxData[i];
+                            if (token >= 0 && token < NumEmbeddings)
                             {
-                                gradWeightsData[wOffset + d] += goData[outOffset + d];
+                                for (int d = 0; d < EmbeddingDim; d++)
+                                {
+                                    gwData[token * EmbeddingDim + d] += goData[i * EmbeddingDim + d];
+                                }
                             }
                         }
-                    }
 
-                    var gradWeights = Tensor.FromArray(gradWeightsData, capturedWeights.Shape, gradOut.Device);
+                        capturedWeights.AccumulateGrad(Tensor.FromArray(gwData, capturedWeights.Shape, gradOut.Device));
+                        return Tensor.Zeros(capturedIndices.Shape, capturedIndices.Device);
+                    };
+                }
 
-                    // Thread-Safe Atomic gradient accumulation
-                    capturedWeights.AccumulateGrad(gradWeights);
-
-                    return Tensor.Zeros(capturedIndices.Shape, capturedIndices.Device);
-                };
+                return result;
             }
-
-            return result;
         }
-        /// <summary>
-        /// Retrieves the learnable parameters of this layer.
-        /// </summary>
-        /// <returns>An enumerable collection containing the weight tensor of the embedding layer.</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {

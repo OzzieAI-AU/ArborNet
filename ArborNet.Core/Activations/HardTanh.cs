@@ -95,7 +95,9 @@ namespace ArborNet.Core.Activations
                 {
                     var mask = input.GreaterThan(Tensor.FromScalar(-1f, input.Device))
                                    .Multiply(input.LessEqual(Tensor.FromScalar(1f, input.Device)));
-                    return gradOutput.Multiply(mask);
+                    var gradInput = gradOutput.Multiply(mask);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

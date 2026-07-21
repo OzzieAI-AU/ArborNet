@@ -88,7 +88,9 @@ namespace ArborNet.Core.Activations
                 output.GradFn = gradOutput =>
                 {
                     var tanh = new Tanh().Forward(input);
-                    return gradOutput.Multiply(Tensor.Ones(input.Shape, input.Device).Subtract(tanh.Multiply(tanh)));
+                    var gradInput = gradOutput.Multiply(Tensor.Ones(input.Shape, input.Device).Subtract(tanh.Multiply(tanh)));
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

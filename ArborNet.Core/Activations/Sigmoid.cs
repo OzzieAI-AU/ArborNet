@@ -107,7 +107,9 @@ namespace ArborNet.Activations
                 output.GradFn = gradOutput =>
                 {
                     var localGrad = output.Multiply(Tensor.Ones(input.Shape, device).Subtract(output));
-                    return localGrad.Multiply(gradOutput);
+                    var gradInput = localGrad.Multiply(gradOutput);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

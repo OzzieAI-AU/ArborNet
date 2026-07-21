@@ -9,7 +9,6 @@
 
 namespace ArborNet.Core.Backends
 {
-
     #region Using Statements:
 
     using ArborNet.Activations;
@@ -22,108 +21,34 @@ namespace ArborNet.Core.Backends
     using System.Linq;
     using System.Numerics;
     using System.Runtime.CompilerServices;
+
+    #endregion
+
     /// <summary>
     /// Represents a CPU-based tensor backend implementation that supports multidimensional operations, 
     /// SIMD hardware acceleration, automatic differentiation (autograd), and lazy resource management.
     /// </summary>
-
-    #endregion
-
     public sealed class CpuBackend : ITensor, IDisposable
     {
-        /// <summary>
-        /// The underlying flat array containing the tensor elements.
-        /// </summary>
         private float[] _data;
-
-        /// <summary>
-        /// The total number of elements in the tensor.
-        /// </summary>
         private readonly int _length;
-
-        /// <summary>
-        /// Indicates whether the underlying data array was rented from the shared array pool.
-        /// </summary>
         private bool _isRented;
-
-        /// <summary>
-        /// The shape and dimensional structure of the tensor.
-        /// </summary>
         private TensorShape _shape;
-
-        /// <summary>
-        /// The execution device assigned to the tensor (defaults to CPU).
-        /// </summary>
         private Device _device;
-
-        /// <summary>
-        /// A value indicating whether gradients should be computed and tracked for this tensor.
-        /// </summary>
         private bool _requiresGrad;
-
-        /// <summary>
-        /// The accumulated gradient tensor for backpropagation.
-        /// </summary>
         private ITensor? _grad;
-
-        /// <summary>
-        /// The backward gradient function used to propagate gradients during autograd execution.
-        /// </summary>
         private Func<ITensor, ITensor>? _gradFn;
-
-        /// <summary>
-        /// The source tensors that produced this tensor in the computational graph.
-        /// </summary>
         private ITensor[] _inputs = Array.Empty<ITensor>();
-
-        /// <summary>
-        /// Lock object used to ensure thread safety during state modifications and numerical accumulations.
-        /// </summary>
         private readonly object _lock = new();
-        /// <summary>
-        /// Gets or sets the parent input tensors associated with this node in the execution graph.
-        /// </summary>
 
         public ITensor[] Inputs { get => _inputs; set => _inputs = value; }
-        /// <summary>
-        /// Gets the shape structure of the tensor.
-        /// </summary>
-
         public TensorShape Shape => _shape;
-        /// <summary>
-        /// Gets the physical hardware device associated with this backend.
-        /// </summary>
-
         public Device Device => _device;
-        /// <summary>
-        /// Gets or sets a value indicating whether this tensor tracks and accumulates gradients.
-        /// </summary>
-
         public bool RequiresGrad { get => _requiresGrad; set => _requiresGrad = value; }
-        /// <summary>
-        /// Gets or sets the gradient associated with this tensor.
-        /// </summary>
-
         public ITensor? Grad { get => _grad; set => _grad = value; }
-        /// <summary>
-        /// Gets or sets the backwards function delegate used for autograd computations.
-        /// </summary>
-
         public Func<ITensor, ITensor>? GradFn { get => _gradFn; set => _gradFn = value; }
-        /// <summary>
-        /// Gets a copy of the underlying tensor data as a flat float array.
-        /// </summary>
-
         public float[] Data => ToArray();
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="CpuBackend"/> class with a specified shape, 
-        /// renting memory from the shared array pool.
-        /// </summary>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="requiresGrad">Whether the tensor tracks gradients.</param>
-        /// <param name="device">The targeted device. Defaults to CPU.</param>
-        /// <exception cref="ArgumentNullException">Thrown if the provided shape is null.</exception>
         public CpuBackend(TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape ?? throw new ArgumentNullException(nameof(shape));
@@ -136,14 +61,6 @@ namespace ArborNet.Core.Backends
             TensorScope.Register(this);
         }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="CpuBackend"/> class wrapping an existing, managed float array.
-        /// </summary>
-        /// <param name="data">The pre-allocated flat array representing the tensor's elements.</param>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="requiresGrad">Whether the tensor tracks gradients.</param>
-        /// <param name="device">The targeted device. Defaults to CPU.</param>
-        /// <exception cref="ArgumentNullException">Thrown if shape or data is null.</exception>
         public CpuBackend(float[] data, TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape ?? throw new ArgumentNullException(nameof(shape));
@@ -153,11 +70,6 @@ namespace ArborNet.Core.Backends
             _requiresGrad = requiresGrad;
             _device = device ?? Device.CPU;
         }
-        /// <summary>
-        /// Accumulates the given gradient delta into this tensor's gradient state, 
-        /// automatically handling dimension reductions due to broadcasting.
-        /// </summary>
-        /// <param name="delta">The incoming gradient tensor to accumulate.</param>
 
         public void AccumulateGrad(ITensor delta)
         {
@@ -175,10 +87,6 @@ namespace ArborNet.Core.Backends
                 }
             }
         }
-        /// <summary>
-        /// Adds another tensor to this tensor in-place.
-        /// </summary>
-        /// <param name="other">The tensor containing the values to add.</param>
 
         public void AddInPlace(ITensor other)
         {
@@ -189,10 +97,6 @@ namespace ArborNet.Core.Backends
                 ArborNet.Core.Native.SIMD.Accelerate.Add(_data, _data, otherRaw._data, len);
             }
         }
-        /// <summary>
-        /// Adds a scalar value to every element of this tensor in-place.
-        /// </summary>
-        /// <param name="scalar">The scalar value to add.</param>
 
         public void AddInPlace(float scalar)
         {
@@ -201,10 +105,6 @@ namespace ArborNet.Core.Backends
                 for (int i = 0; i < _length; i++) _data[i] += scalar;
             }
         }
-        /// <summary>
-        /// Subtracts another tensor from this tensor in-place.
-        /// </summary>
-        /// <param name="other">The tensor containing the values to subtract.</param>
 
         public void SubtractInPlace(ITensor other)
         {
@@ -215,10 +115,6 @@ namespace ArborNet.Core.Backends
                 ArborNet.Core.Native.SIMD.Accelerate.Subtract(_data, _data, otherRaw._data, len);
             }
         }
-        /// <summary>
-        /// Subtracts a scalar value from every element of this tensor in-place.
-        /// </summary>
-        /// <param name="scalar">The scalar value to subtract.</param>
 
         public void SubtractInPlace(float scalar)
         {
@@ -227,10 +123,6 @@ namespace ArborNet.Core.Backends
                 for (int i = 0; i < _length; i++) _data[i] -= scalar;
             }
         }
-        /// <summary>
-        /// Multiplies this tensor by another tensor element-wise in-place.
-        /// </summary>
-        /// <param name="other">The tensor containing the values to multiply by.</param>
 
         public void MultiplyInPlace(ITensor other)
         {
@@ -241,10 +133,6 @@ namespace ArborNet.Core.Backends
                 ArborNet.Core.Native.SIMD.Accelerate.Multiply(_data, _data, otherRaw._data, len);
             }
         }
-        /// <summary>
-        /// Multiplies every element of this tensor by a scalar value in-place.
-        /// </summary>
-        /// <param name="scalar">The scalar factor.</param>
 
         public void MultiplyInPlace(float scalar)
         {
@@ -253,14 +141,6 @@ namespace ArborNet.Core.Backends
                 for (int i = 0; i < _length; i++) _data[i] *= scalar;
             }
         }
-        /// <summary>
-        /// Gathers values along a specified axis using 1D indices. Currently optimized for 2D inputs [Batch, Classes].
-        /// </summary>
-        /// <param name="axis">The dimension along which to gather elements.</param>
-        /// <param name="indices">The indices containing the elements to extract.</param>
-        /// <returns>A new <see cref="ITensor"/> containing the gathered elements.</returns>
-        /// <exception cref="NotSupportedException">Thrown if the tensor rank is not 2.</exception>
-        /// <exception cref="IndexOutOfRangeException">Thrown if an index is outside the bounds of the specified axis size.</exception>
 
         public ITensor Gather(int axis, ITensor indices)
         {
@@ -283,7 +163,10 @@ namespace ArborNet.Core.Backends
                 outData[i] = _data[i * classes + classIdx];
             }
 
-            var result = new CpuBackend(outData, outShape, _requiresGrad, _device);
+            var result = new CpuBackend(outData, outShape, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
 
             if (_requiresGrad)
             {
@@ -308,10 +191,6 @@ namespace ArborNet.Core.Backends
 
             return new Tensor(result);
         }
-        /// <summary>
-        /// Returns a safe copy of the underlying flat tensor elements.
-        /// </summary>
-        /// <returns>A new flat float array copying the tensor data.</returns>
 
         public float[] ToArray()
         {
@@ -322,29 +201,14 @@ namespace ArborNet.Core.Backends
             }
             return copy;
         }
-        /// <summary>
-        /// Extracts the single scalar value from a 1-element tensor.
-        /// </summary>
-        /// <returns>The scalar value of the tensor.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the tensor does not contain exactly one element.</exception>
 
         public float ToScalar()
         {
             if (_length != 1) throw new InvalidOperationException("Tensor is not a scalar.");
             return _data[0];
         }
-        /// <summary>
-        /// Creates a deep copy of the tensor and its configuration.
-        /// </summary>
-        /// <returns>A new cloned instance of <see cref="ITensor"/>.</returns>
 
         public ITensor Clone() => new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, _device);
-        /// <summary>
-        /// Transfers this tensor to another specified hardware execution device.
-        /// </summary>
-        /// <param name="device">The target execution device.</param>
-        /// <returns>An <see cref="ITensor"/> backed by the targeted device.</returns>
-        /// <exception cref="NotSupportedException">Thrown if the requested device conversion is unsupported.</exception>
 
         public ITensor To(Device device)
         {
@@ -352,12 +216,6 @@ namespace ArborNet.Core.Backends
             if (device.Type == DeviceType.CUDA) return new CudaBackend(ToArray(), _shape.Clone(), _requiresGrad, device);
             throw new NotSupportedException($"Transfer to {device.Type} is not supported.");
         }
-        /// <summary>
-        /// Updates the elements of the tensor with the contents of the given float array.
-        /// </summary>
-        /// <param name="floats">The source array containing the new elements.</param>
-        /// <exception cref="ArgumentNullException">Thrown if the input array is null.</exception>
-        /// <exception cref="ArgumentException">Thrown if the input array length does not match the tensor total elements.</exception>
 
         public void SetData(float[] floats)
         {
@@ -375,30 +233,10 @@ namespace ArborNet.Core.Backends
                 _data = (float[])floats.Clone();
             }
         }
-        /// <summary>
-        /// Gets a value indicating whether this tensor runs on CPU hardware.
-        /// </summary>
-        /// <returns>True.</returns>
 
         public bool IsCpu() => true;
-        /// <summary>
-        /// Gets a value indicating whether this tensor runs on CUDA hardware.
-        /// </summary>
-        /// <returns>False.</returns>
-
         public bool IsCuda() => false;
-        /// <summary>
-        /// Yields this backend as a trackable optimization parameter.
-        /// </summary>
-        /// <returns>An enumerable containing this tensor.</returns>
-
         public IEnumerable<ITensor> Parameters() { yield return this; }
-        /// <summary>
-        /// Computes the broadcasted output shape and necessary source strides for binary elementwise broadcasting operations.
-        /// </summary>
-        /// <param name="a">The first input tensor.</param>
-        /// <param name="b">The second input tensor.</param>
-        /// <returns>A tuple containing the broadcasted target shape, the stride offsets for tensor A, and the stride offsets for tensor B.</returns>
 
         private static (TensorShape shape, long[] strideA, long[] strideB) GetBroadcastShapeAndStrides(ITensor a, ITensor b)
         {
@@ -409,12 +247,6 @@ namespace ArborNet.Core.Backends
             var strideB = ComputeBroadcastStrides(cb._shape.Dimensions, resultShape.Dimensions);
             return (resultShape, strideA, strideB);
         }
-        /// <summary>
-        /// Calculates indexing strides based on the original shape mapping to a broadcasted target shape.
-        /// </summary>
-        /// <param name="original">The dimensions of the original pre-broadcasted shape.</param>
-        /// <param name="target">The dimensions of the target broadcasted shape.</param>
-        /// <returns>An array of stride values corresponding to the target dimensions.</returns>
 
         private static long[] ComputeBroadcastStrides(int[] original, int[] target)
         {
@@ -438,13 +270,6 @@ namespace ArborNet.Core.Backends
             }
             return strides;
         }
-        /// <summary>
-        /// Map a 1D flat output index back to the flat index of a source tensor using its broadcast strides.
-        /// </summary>
-        /// <param name="flatIdx">The 1D flat index in the target broadcasted tensor.</param>
-        /// <param name="strides">The stride mapping array calculated for the source tensor.</param>
-        /// <param name="shape">The target broadcasted shape dimensions.</param>
-        /// <returns>The corresponding 1D flat index in the original source tensor.</returns>
 
         private static int GetBroadcastIndex(int flatIdx, long[] strides, int[] shape)
         {
@@ -459,30 +284,34 @@ namespace ArborNet.Core.Backends
             }
             return idx;
         }
-        /// <summary>
-        /// Broadcasts the current tensor to a compatible target shape.
-        /// </summary>
-        /// <param name="targetShape">The desired target shape.</param>
-        /// <returns>A new <see cref="ITensor"/> broadcasted to the target shape.</returns>
 
         public ITensor BroadcastTo(TensorShape targetShape)
         {
             if (_shape.Equals(targetShape)) return new Tensor(this);
-            var result = new CpuBackend(targetShape, _requiresGrad, _device);
+            var result = new CpuBackend(targetShape, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
             var strides = ComputeBroadcastStrides(_shape.Dimensions, targetShape.Dimensions);
 
-            for (int i = 0; i < result._data.Length; i++)
+            for (int i = 0; i < result._length; i++)
             {
                 int srcIdx = GetBroadcastIndex(i, strides, targetShape.Dimensions);
-                result._data[i] = _data[srcIdx % _data.Length];
+                result._data[i] = _data[srcIdx % _length];
             }
+
+            if (_requiresGrad)
+            {
+                var capturedSelf = this;
+                result.GradFn = gradOutput =>
+                {
+                    capturedSelf.AccumulateGrad(gradOutput);
+                    return gradOutput;
+                };
+            }
+
             return new Tensor(result);
         }
-        /// <summary>
-        /// Performs elementwise addition between this tensor and another tensor, supporting broadcasting.
-        /// </summary>
-        /// <param name="other">The tensor to add.</param>
-        /// <returns>A new <see cref="ITensor"/> representing the sum.</returns>
 
         public ITensor Add(ITensor other)
         {
@@ -506,13 +335,6 @@ namespace ArborNet.Core.Backends
 
             return Elementwise(other, (a, b) => a + b, (g, _, _) => (g, g));
         }
-        /// <summary>
-        /// Performs vectorized hardware scalar addition utilizing SIMD instructions.
-        /// </summary>
-        /// <param name="dest">The destination flat array where results will be written.</param>
-        /// <param name="src">The source flat array containing input elements.</param>
-        /// <param name="scalar">The scalar value to add to each element.</param>
-        /// <param name="length">The number of elements to process.</param>
 
         private static unsafe void VectorizedScalarAdd(float[] dest, float[] src, float scalar, int length)
         {
@@ -534,74 +356,48 @@ namespace ArborNet.Core.Backends
                 dest[i] = src[i] + scalar;
             }
         }
-        /// <summary>
-        /// Subtracts another tensor from this tensor, supporting broadcasting.
-        /// </summary>
-        /// <param name="other">The tensor to subtract.</param>
-        /// <returns>A new <see cref="ITensor"/> representing the difference.</returns>
 
         public ITensor Subtract(ITensor other)
         {
             var otherRaw = Unwrap(other);
             if (_shape.Equals(otherRaw._shape))
             {
-                var resultData = new float[_data.Length];
-                ArborNet.Core.Native.SIMD.Accelerate.Subtract(resultData, _data, otherRaw._data, _data.Length);
-
-                var rawResult = new CpuBackend(resultData, _shape.Clone(), _requiresGrad || other.RequiresGrad, _device)
+                var result = new CpuBackend(_shape, _requiresGrad || other.RequiresGrad, _device)
                 {
                     Inputs = new[] { this, other }
                 };
+                ArborNet.Core.Native.SIMD.Accelerate.Subtract(result._data, _data, otherRaw._data, _length);
 
-                RegisterBinaryAutograd(rawResult, this, other, (g, _, _) => (g, g.Negate()));
-                return new Tensor(rawResult);
+                RegisterBinaryAutograd(result, this, other, (g, _, _) => (g, g.Negate()));
+                return new Tensor(result);
             }
 
             return Elementwise(other, (a, b) => a - b, (g, _, _) => (g, g.Negate()));
         }
-        /// <summary>
-        /// Multiplies this tensor by another tensor element-wise, supporting broadcasting.
-        /// </summary>
-        /// <param name="other">The tensor to multiply by.</param>
-        /// <returns>A new <see cref="ITensor"/> representing the product.</returns>
 
         public ITensor Multiply(ITensor other)
         {
             var otherRaw = Unwrap(other);
             if (_shape.Equals(otherRaw._shape))
             {
-                var resultData = new float[_data.Length];
-                ArborNet.Core.Native.SIMD.Accelerate.Multiply(resultData, _data, otherRaw._data, _data.Length);
-
-                var rawResult = new CpuBackend(resultData, _shape.Clone(), _requiresGrad || other.RequiresGrad, _device)
+                var result = new CpuBackend(_shape, _requiresGrad || other.RequiresGrad, _device)
                 {
                     Inputs = new[] { this, other }
                 };
+                ArborNet.Core.Native.SIMD.Accelerate.Multiply(result._data, _data, otherRaw._data, _length);
 
-                RegisterBinaryAutograd(rawResult, this, other, (g, a, b) => (g.Multiply(b), g.Multiply(a)));
-                return new Tensor(rawResult);
+                RegisterBinaryAutograd(result, this, other, (g, a, b) => (g.Multiply(b), g.Multiply(a)));
+                return new Tensor(result);
             }
 
             return Elementwise(other, (a, b) => a * b, (g, a, b) => (g.Multiply(b), g.Multiply(a)));
         }
-        /// <summary>
-        /// Divides this tensor by another tensor element-wise, supporting broadcasting.
-        /// </summary>
-        /// <param name="other">The divisor tensor.</param>
-        /// <returns>A new <see cref="ITensor"/> representing the quotient.</returns>
 
         public ITensor Divide(ITensor other)
         {
             return Elementwise(other, (a, b) => b != 0 ? a / b : 0f,
                 (g, a, b) => (g.Divide(b), g.Multiply(a.Negate()).Divide(b.Multiply(b))));
         }
-        /// <summary>
-        /// Computes a binary element-wise operation over two tensors, managing broadcasting and autograd tracking.
-        /// </summary>
-        /// <param name="other">The other tensor operand.</param>
-        /// <param name="op">The delegate representing the binary scalar operation.</param>
-        /// <param name="gradFn">The gradient backward function delegate returning a tuple of gradients for (self, other).</param>
-        /// <returns>A new <see cref="ITensor"/> containing the computed results.</returns>
 
         private ITensor Elementwise(ITensor other, Func<float, float, float> op, Func<ITensor, ITensor, ITensor, (ITensor, ITensor)> gradFn)
         {
@@ -614,8 +410,8 @@ namespace ArborNet.Core.Backends
             {
                 int idxA = GetBroadcastIndex(i, strideA, resultShape.Dimensions);
                 int idxB = GetBroadcastIndex(i, strideB, resultShape.Dimensions);
-                resultData[i] = op(selfRaw._data[idxA % selfRaw._data.Length],
-                                   otherRaw._data[idxB % otherRaw._data.Length]);
+                resultData[i] = op(selfRaw._data[idxA % selfRaw._length],
+                                   otherRaw._data[idxB % otherRaw._length]);
             }
 
             bool requiresGrad = this.RequiresGrad || other.RequiresGrad;
@@ -627,28 +423,23 @@ namespace ArborNet.Core.Backends
             RegisterBinaryAutograd(rawResult, this, other, gradFn);
             return new Tensor(rawResult);
         }
-        /// <summary>
-        /// Computes an element-wise unary operation over the current tensor with custom gradient propagation.
-        /// </summary>
-        /// <param name="op">The delegate representing the unary scalar operation.</param>
-        /// <param name="gradFn">The gradient backward function delegate returning the gradient for self.</param>
-        /// <returns>A new <see cref="ITensor"/> containing the computed results.</returns>
 
         private ITensor ElementwiseScalar(Func<float, float> op, Func<ITensor, ITensor> gradFn)
         {
-            var resultData = new float[_data.Length];
-            for (int i = 0; i < _data.Length; i++)
-                resultData[i] = op(_data[i]);
-
-            var rawResult = new CpuBackend(resultData, _shape, _requiresGrad, _device)
+            var result = new CpuBackend(_shape, _requiresGrad, _device)
             {
                 Inputs = new[] { this }
             };
 
+            for (int i = 0; i < _length; i++)
+            {
+                result._data[i] = op(_data[i]);
+            }
+
             if (_requiresGrad)
             {
                 var capturedSelf = this;
-                rawResult.GradFn = gradOutput =>
+                result.GradFn = gradOutput =>
                 {
                     var gSelf = gradFn(gradOutput);
                     capturedSelf.AccumulateGrad(gSelf);
@@ -656,20 +447,14 @@ namespace ArborNet.Core.Backends
                 };
             }
 
-            return new Tensor(rawResult);
+            return new Tensor(result);
         }
-        /// <summary>
-        /// Helper method to register custom gradient backward actions for binary computational nodes.
-        /// </summary>
-        /// <param name="result">The resulting backend tensor of the operation.</param>
-        /// <param name="self">The left operand tensor.</param>
-        /// <param name="other">The right operand tensor.</param>
-        /// <param name="gradFn">The gradient computation delegate returning a tuple of gradients for (self, other).</param>
 
         private static void RegisterBinaryAutograd(CpuBackend result, ITensor self, ITensor other, Func<ITensor, ITensor, ITensor, (ITensor, ITensor)> gradFn)
         {
             if (result.RequiresGrad)
             {
+                result.Inputs = new[] { Unwrap(self), Unwrap(other) };
                 result.GradFn = gradOutput =>
                 {
                     var (gSelf, gOther) = gradFn(gradOutput, self, other);
@@ -679,12 +464,6 @@ namespace ArborNet.Core.Backends
                 };
             }
         }
-        /// <summary>
-        /// Reduces a gradient delta tensor back to a target shape to account for automatic broadcasting during forward computation.
-        /// </summary>
-        /// <param name="delta">The gradient tensor to reduce.</param>
-        /// <param name="targetShape">The original pre-broadcast shape target.</param>
-        /// <returns>A reduced gradient <see cref="ITensor"/> matching the target shape.</returns>
 
         public static ITensor ReduceGradientToTarget(ITensor delta, TensorShape targetShape)
         {
@@ -715,139 +494,36 @@ namespace ArborNet.Core.Backends
             }
             return current;
         }
-        /// <summary>
-        /// Adds a scalar float value to this tensor.
-        /// </summary>
-        /// <param name="scalar">The scalar value to add.</param>
-        /// <returns>A new sum <see cref="ITensor"/>.</returns>
 
         public ITensor Add(float scalar) => ElementwiseScalar(x => x + scalar, g => g);
-        /// <summary>
-        /// Subtracts a scalar float value from this tensor.
-        /// </summary>
-        /// <param name="scalar">The scalar value to subtract.</param>
-        /// <returns>A new difference <see cref="ITensor"/>.</returns>
-
         public ITensor Subtract(float scalar) => ElementwiseScalar(x => x - scalar, g => g);
-        /// <summary>
-        /// Multiplies this tensor by a scalar float value.
-        /// </summary>
-        /// <param name="scalar">The scalar multiplier.</param>
-        /// <returns>A new product <see cref="ITensor"/>.</returns>
-
         public ITensor Multiply(float scalar) => ElementwiseScalar(x => x * scalar, g => g.Multiply(scalar));
-        /// <summary>
-        /// Divides this tensor by a scalar float value.
-        /// </summary>
-        /// <param name="scalar">The scalar divisor.</param>
-        /// <returns>A new quotient <see cref="ITensor"/>.</returns>
-
         public ITensor Divide(float scalar) => Multiply(1f / scalar);
-        /// <summary>
-        /// Subtracts a scalar integer value from this tensor.
-        /// </summary>
-        /// <param name="other">The scalar integer value to subtract.</param>
-        /// <returns>A new difference <see cref="ITensor"/>.</returns>
-
         public ITensor Subtract(int other) => Subtract((float)other);
-        /// <summary>
-        /// Multiplies this tensor by a scalar double value.
-        /// </summary>
-        /// <param name="scalar">The scalar multiplier.</param>
-        /// <returns>A new product <see cref="ITensor"/>.</returns>
-
         public ITensor Multiply(double scalar) => Multiply((float)scalar);
-        /// <summary>
-        /// Divides this tensor by a scalar double value.
-        /// </summary>
-        /// <param name="scalar">The scalar divisor.</param>
-        /// <returns>A new quotient <see cref="ITensor"/>.</returns>
-
         public ITensor Divide(double scalar) => Multiply(1.0 / scalar);
-        /// <summary>
-        /// Negates every element of this tensor.
-        /// </summary>
-        /// <returns>A negated copy of this <see cref="ITensor"/>.</returns>
-
         public ITensor Negate() => ElementwiseScalar(x => -x, g => g.Negate());
-        /// <summary>
-        /// Computes the exponential (e^x) of each element.
-        /// </summary>
-        /// <returns>An element-wise exponential <see cref="ITensor"/>.</returns>
-
         public ITensor Exp() => ElementwiseScalar(MathF.Exp, g => g.Multiply(this.Exp()));
-        /// <summary>
-        /// Computes the natural logarithm of each element.
-        /// </summary>
-        /// <returns>An element-wise natural log <see cref="ITensor"/>.</returns>
-
         public ITensor Log() => ElementwiseScalar(MathF.Log, g => g.Divide(this));
-        /// <summary>
-        /// Computes the square root of each element.
-        /// </summary>
-        /// <returns>An element-wise square root <see cref="ITensor"/>.</returns>
-
         public ITensor Sqrt() => ElementwiseScalar(MathF.Sqrt, g => g.Divide(this.Sqrt().Multiply(2)));
-        /// <summary>
-        /// Computes the absolute value of each element.
-        /// </summary>
-        /// <returns>An element-wise absolute value <see cref="ITensor"/>.</returns>
-
         public ITensor Abs() => ElementwiseScalar(MathF.Abs, g => g.Multiply(this.GreaterThan(Tensor.Zeros(_shape)).Multiply(2).Subtract(1)));
-        /// <summary>
-        /// Computes the sine of each element.
-        /// </summary>
-        /// <returns>An element-wise sine <see cref="ITensor"/>.</returns>
-
         public ITensor Sin() => ElementwiseScalar(MathF.Sin, g => g.Multiply(this.Cos()));
-        /// <summary>
-        /// Computes the cosine of each element.
-        /// </summary>
-        /// <returns>An element-wise cosine <see cref="ITensor"/>.</returns>
-
         public ITensor Cos() => ElementwiseScalar(MathF.Cos, g => g.Multiply(this.Sin().Negate()));
-        /// <summary>
-        /// Computes the numerical sign indicator (-1, 0, 1) of each element.
-        /// </summary>
-        /// <returns>An element-wise sign representation <see cref="ITensor"/>.</returns>
-
-        public ITensor Sign() => ElementwiseScalar(x => MathF.Sign(x), g => Tensor.Zeros(g.Shape, g.Device));
-        /// <summary>
-        /// Computes the mathematical power (x^exponent) of each element using a scalar float exponent.
-        /// </summary>
-        /// <param name="exponent">The numeric power exponent.</param>
-        /// <returns>A new <see cref="ITensor"/> containing the elementwise exponentiation results.</returns>
+        public ITensor Sign() => ElementwiseScalar(x => (float)MathF.Sign(x), g => Tensor.Zeros(g.Shape, g.Device));
 
         public ITensor Pow(float exponent)
         {
             return ElementwiseScalar(x => MathF.Pow(x, exponent),
                 g => g.Multiply(Tensor.FromScalar(exponent)).Multiply(this.Pow(exponent - 1)));
         }
-        /// <summary>
-        /// Computes the element-wise mathematical power using exponents specified in another tensor.
-        /// </summary>
-        /// <param name="exponent">The exponent tensor.</param>
-        /// <returns>A new <see cref="ITensor"/> representing base raised to exponent power.</returns>
 
         public ITensor Pow(ITensor exponent) => Elementwise(exponent, (a, b) => MathF.Pow(a, b),
-    (g, a, b) => (
-        g.Multiply(b.Multiply(a.Pow(b.Subtract(Tensor.FromScalar(1f))))),
-        g.Multiply(a.Pow(b).Multiply(a.Log()))
-    ));
-        /// <summary>
-        /// Adds another tensor to this tensor supporting automatic broadcasting.
-        /// </summary>
-        /// <param name="other">The tensor to add.</param>
-        /// <returns>The broadcasted sum <see cref="ITensor"/>.</returns>
+            (g, a, b) => (
+                g.Multiply(b.Multiply(a.Pow(b.Subtract(Tensor.FromScalar(1f))))),
+                g.Multiply(a.Pow(b).Multiply(a.Log()))
+            ));
 
         public ITensor BroadcastAdd(ITensor other) => Add(other);
-        /// <summary>
-        /// Reshapes this tensor and broadcasts it to a target shape along a specific axis index.
-        /// </summary>
-        /// <param name="target">The target shape.</param>
-        /// <param name="axis">The alignment dimension index.</param>
-        /// <returns>A reshaped and broadcasted <see cref="ITensor"/>.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if the target shape is null.</exception>
 
         public ITensor ReshapeWithBroadcast(TensorShape target, int axis = -1)
         {
@@ -864,12 +540,6 @@ namespace ArborNet.Core.Backends
 
             return this.Reshape(viewDims).BroadcastTo(target);
         }
-        /// <summary>
-        /// Performs matrix multiplication on two 2D tensors.
-        /// </summary>
-        /// <param name="other">The multiplier matrix.</param>
-        /// <returns>A new 2D <see cref="ITensor"/> representing the matrix product.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if either tensor is not 2D.</exception>
 
         public ITensor MatMul(ITensor other)
         {
@@ -920,12 +590,6 @@ namespace ArborNet.Core.Backends
 
             return new Tensor(rawResult);
         }
-        /// <summary>
-        /// Transposes this tensor according to a dimension permutation layout.
-        /// </summary>
-        /// <param name="perm">An array of integers representing the dimension permutation sequence.</param>
-        /// <returns>A transposed representation of the tensor.</returns>
-        /// <exception cref="ArgumentException">Thrown if the permutation array size does not match the tensor rank.</exception>
 
         public ITensor Transpose(int[] perm)
         {
@@ -933,10 +597,13 @@ namespace ArborNet.Core.Backends
                 throw new ArgumentException("Permutation rank mismatch.");
 
             var newShape = perm.Select(p => _shape.Dimensions[p]).ToArray();
-            var resultData = new float[_data.Length];
+            var result = new CpuBackend(new TensorShape(newShape), _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
             var indices = new int[_shape.Rank];
 
-            for (int i = 0; i < _data.Length; i++)
+            for (int i = 0; i < _length; i++)
             {
                 int temp = i;
                 for (int d = _shape.Rank - 1; d >= 0; d--)
@@ -951,16 +618,14 @@ namespace ArborNet.Core.Backends
                     newIdx += indices[perm[d]] * stride;
                     stride *= newShape[d];
                 }
-                resultData[newIdx] = _data[i];
+                result._data[newIdx] = _data[i];
             }
-
-            var rawResult = new CpuBackend(resultData, new TensorShape(newShape), _requiresGrad, _device);
 
             if (_requiresGrad)
             {
                 var capturedSelf = this;
                 var capturedPerm = (int[])perm.Clone();
-                rawResult.GradFn = gradOutput =>
+                result.GradFn = gradOutput =>
                 {
                     var invPerm = InvertPerm(capturedPerm);
                     var gradSelf = gradOutput.Transpose(invPerm);
@@ -969,13 +634,8 @@ namespace ArborNet.Core.Backends
                 };
             }
 
-            return new Tensor(rawResult);
+            return new Tensor(result);
         }
-        /// <summary>
-        /// Inverts a dimension permutation sequence.
-        /// </summary>
-        /// <param name="perm">The dimension permutation layout array to invert.</param>
-        /// <returns>The inverted dimension permutation layout array.</returns>
 
         private static int[] InvertPerm(int[] perm)
         {
@@ -983,12 +643,6 @@ namespace ArborNet.Core.Backends
             for (int i = 0; i < perm.Length; i++) inv[perm[i]] = i;
             return inv;
         }
-        /// <summary>
-        /// Reshapes this tensor into a target dimensional structure.
-        /// </summary>
-        /// <param name="newShape">The targeted dimensions.</param>
-        /// <returns>A new <see cref="ITensor"/> with the reshaped layout.</returns>
-        /// <exception cref="ArgumentException">Thrown if total element count differs between shapes.</exception>
 
         public ITensor Reshape(params int[] newShape)
         {
@@ -996,7 +650,10 @@ namespace ArborNet.Core.Backends
             if (ns.TotalElements != _shape.TotalElements)
                 throw new ArgumentException("Total element mismatch in Reshape.");
 
-            var rawResult = new CpuBackend(_data, ns, _requiresGrad, _device);
+            var rawResult = new CpuBackend(_data, ns, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
 
             if (_requiresGrad)
             {
@@ -1011,27 +668,26 @@ namespace ArborNet.Core.Backends
 
             return new Tensor(rawResult);
         }
-        /// <summary>
-        /// Sums all elements of the tensor, optionally across a targeted axis.
-        /// </summary>
-        /// <param name="axis">The reduction axis index.</param>
-        /// <param name="keepDims">Whether to preserve the reduced dimension with size 1.</param>
-        /// <returns>The summed <see cref="ITensor"/> output.</returns>
 
         public ITensor Sum(int? axis = null, bool keepDims = false)
         {
             if (!axis.HasValue)
             {
-                var scalarValue = _data.Sum();
+                float scalarValue = 0f;
+                for (int i = 0; i < _length; i++) scalarValue += _data[i];
+
                 var newShape = keepDims ? new TensorShape(Enumerable.Repeat(1, _shape.Rank).ToArray()) : new TensorShape(1);
-                var rawResult = new CpuBackend(new[] { scalarValue }, newShape, _requiresGrad, _device);
+                var rawResult = new CpuBackend(new[] { scalarValue }, newShape, _requiresGrad, _device)
+                {
+                    Inputs = new[] { this }
+                };
 
                 if (_requiresGrad)
                 {
                     var capturedSelf = this;
                     rawResult.GradFn = gradOutput =>
                     {
-                        var gradSelf = Tensor.Ones(_shape, _device);
+                        var gradSelf = Tensor.Ones(_shape, _device).Multiply(gradOutput);
                         capturedSelf.AccumulateGrad(gradSelf);
                         return gradOutput;
                     };
@@ -1042,12 +698,6 @@ namespace ArborNet.Core.Backends
 
             return ReduceAlongAxis(axis.Value, false, keepDims);
         }
-        /// <summary>
-        /// Sums elements across multiple dimensions.
-        /// </summary>
-        /// <param name="axes">An array of target reduction dimensions.</param>
-        /// <param name="keepDims">Whether to preserve reduced dimensions.</param>
-        /// <returns>A summed multidimensional <see cref="ITensor"/>.</returns>
 
         public ITensor Sum(int[] axes, bool keepDims = false)
         {
@@ -1062,27 +712,27 @@ namespace ArborNet.Core.Backends
 
             return result;
         }
-        /// <summary>
-        /// Computes the arithmetic mean value of the elements, optionally across a targeted axis.
-        /// </summary>
-        /// <param name="axis">The reduction axis index.</param>
-        /// <param name="keepDims">Whether to preserve the reduced dimension with size 1.</param>
-        /// <returns>The mean value <see cref="ITensor"/>.</returns>
 
         public ITensor Mean(int? axis = null, bool keepDims = false)
         {
             if (!axis.HasValue)
             {
-                var scalarValue = _data.Average();
+                float sum = 0f;
+                for (int i = 0; i < _length; i++) sum += _data[i];
+                float scalarValue = sum / _length;
+
                 var newShape = keepDims ? new TensorShape(Enumerable.Repeat(1, _shape.Rank).ToArray()) : new TensorShape(1);
-                var rawResult = new CpuBackend(new[] { scalarValue }, newShape, _requiresGrad, _device);
+                var rawResult = new CpuBackend(new[] { scalarValue }, newShape, _requiresGrad, _device)
+                {
+                    Inputs = new[] { this }
+                };
 
                 if (_requiresGrad)
                 {
                     var capturedSelf = this;
                     rawResult.GradFn = gradOutput =>
                     {
-                        var gradSelf = Tensor.Ones(_shape, _device).Divide(_data.Length);
+                        var gradSelf = Tensor.Ones(_shape, _device).Multiply(gradOutput).Divide(_length);
                         capturedSelf.AccumulateGrad(gradSelf);
                         return gradOutput;
                     };
@@ -1092,12 +742,6 @@ namespace ArborNet.Core.Backends
             }
             return ReduceAlongAxis(axis.Value, true, keepDims);
         }
-        /// <summary>
-        /// Computes the arithmetic mean values across multiple specified dimensions.
-        /// </summary>
-        /// <param name="axes">An array of target reduction dimensions.</param>
-        /// <param name="keepDims">Whether to preserve reduced dimensions.</param>
-        /// <returns>The mean multidimensional <see cref="ITensor"/>.</returns>
 
         public ITensor Mean(int[] axes, bool keepDims = false)
         {
@@ -1112,14 +756,6 @@ namespace ArborNet.Core.Backends
 
             return result;
         }
-        /// <summary>
-        /// Collapses and reduces the tensor dimensions along a target axis utilizing summation or averaging logic.
-        /// </summary>
-        /// <param name="axis">The targeted dimension axis index to reduce.</param>
-        /// <param name="isMean">True to calculate the arithmetic mean; false to calculate the sum.</param>
-        /// <param name="keepDims">True to retain the reduced dimension with size 1; false to squeeze it.</param>
-        /// <returns>A new reduced <see cref="ITensor"/>.</returns>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown if the specified axis is out of the dimensions range.</exception>
 
         private ITensor ReduceAlongAxis(int axis, bool isMean, bool keepDims = false)
         {
@@ -1147,7 +783,10 @@ namespace ArborNet.Core.Backends
                     output[o * inner + i] = isMean ? acc / reducedSize : acc;
                 }
 
-            var rawResult = new CpuBackend(output, new TensorShape(outDims), _requiresGrad, _device);
+            var rawResult = new CpuBackend(output, new TensorShape(outDims), _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
 
             if (_requiresGrad)
             {
@@ -1163,78 +802,53 @@ namespace ArborNet.Core.Backends
 
             return new Tensor(rawResult);
         }
-        /// <summary>
-        /// Finds the maximum elements along a specified tensor axis.
-        /// </summary>
-        /// <param name="axis">The axis dimension to scan.</param>
-        /// <param name="keepDims">Whether to preserve the reduced dimension size of 1.</param>
-        /// <returns>An <see cref="ITensor"/> containing the maximum values.</returns>
 
         public ITensor Max(int axis = -1, bool keepDims = false) => ReduceAlongAxis(axis < 0 ? _shape.Rank - 1 : axis, false, keepDims);
-        /// <summary>
-        /// Finds the minimum elements along a specified tensor axis.
-        /// </summary>
-        /// <param name="axis">The axis dimension to scan.</param>
-        /// <param name="keepDims">Whether to preserve the reduced dimension size of 1.</param>
-        /// <returns>An <see cref="ITensor"/> containing the minimum values.</returns>
 
         public ITensor Min(int axis = -1, bool keepDims = false) => ReduceAlongAxis(axis < 0 ? _shape.Rank - 1 : axis, false, keepDims);
-        /// <summary>
-        /// Performs an element-wise logical NOT operation (returns 1 for elements that equal 0; otherwise 0).
-        /// </summary>
-        /// <returns>A new logical boolean indicator <see cref="ITensor"/>.</returns>
 
         public ITensor LogicalNot()
         {
-            var resultData = new float[_data.Length];
-            for (int i = 0; i < _data.Length; i++)
+            var result = new CpuBackend(_shape, false, _device);
+            for (int i = 0; i < _length; i++)
             {
-                resultData[i] = _data[i] == 0f ? 1f : 0f;
+                result._data[i] = _data[i] == 0f ? 1f : 0f;
             }
-            return new Tensor(new CpuBackend(resultData, _shape.Clone(), false, _device));
+            return new Tensor(result);
         }
-        /// <summary>
-        /// Clips tensor values to fall between specified minimum and maximum scalar bounds.
-        /// </summary>
-        /// <param name="v1">The first boundary limit.</param>
-        /// <param name="v2">The second boundary limit.</param>
-        /// <returns>A clipped copy of the original <see cref="ITensor"/>.</returns>
 
         public ITensor Clip(float v1, float v2)
         {
             if (v1 > v2) (v1, v2) = (v2, v1);
-            var resultData = new float[_data.Length];
-            for (int i = 0; i < _data.Length; i++)
+            var result = new CpuBackend(_shape, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
+            for (int i = 0; i < _length; i++)
             {
                 float x = _data[i];
-                resultData[i] = x < v1 ? v1 : (x > v2 ? v2 : x);
+                result._data[i] = x < v1 ? v1 : (x > v2 ? v2 : x);
             }
-            var rawResult = new CpuBackend(resultData, _shape.Clone(), _requiresGrad, _device);
 
             if (_requiresGrad)
             {
                 var capturedSelf = this;
-                rawResult.GradFn = gradOutput =>
+                result.GradFn = gradOutput =>
                 {
-                    var mask = new float[capturedSelf._data.Length];
-                    for (int i = 0; i < capturedSelf._data.Length; i++)
+                    var maskData = new float[_length];
+                    for (int i = 0; i < _length; i++)
                     {
                         float x = capturedSelf._data[i];
-                        mask[i] = (x >= v1 && x <= v2) ? 1f : 0f;
+                        maskData[i] = (x >= v1 && x <= v2) ? 1f : 0f;
                     }
-                    var finalGrad = gradOutput.Multiply(new Tensor(new CpuBackend(mask, _shape.Clone(), false, _device)));
+                    var mask = new CpuBackend(maskData, _shape, false, _device);
+                    var finalGrad = gradOutput.Multiply(new Tensor(mask));
                     capturedSelf.AccumulateGrad(finalGrad);
                     return finalGrad;
                 };
             }
-            return new Tensor(rawResult);
+            return new Tensor(result);
         }
-        /// <summary>
-        /// Performs a generic element-wise comparison between two tensors.
-        /// </summary>
-        /// <param name="other">The other tensor operand to compare against.</param>
-        /// <param name="cmp">The comparison delegate taking two floats and returning 1f for true or 0f for false.</param>
-        /// <returns>A binary indicator <see cref="ITensor"/> where elements are 1f or 0f.</returns>
 
         private ITensor Comparison(ITensor other, Func<float, float, float> cmp)
         {
@@ -1248,45 +862,15 @@ namespace ArborNet.Core.Backends
             {
                 int idxA = GetBroadcastIndex(i, strideA, resultShape.Dimensions);
                 int idxB = GetBroadcastIndex(i, strideB, resultShape.Dimensions);
-                resultData[i] = cmp(left._data[idxA % left._data.Length], right._data[idxB % right._data.Length]);
+                resultData[i] = cmp(left._data[idxA % left._length], right._data[idxB % right._length]);
             }
             return new Tensor(new CpuBackend(resultData, resultShape, false, _device));
         }
-        /// <summary>
-        /// Tests element-wise equality between this tensor and another tensor.
-        /// </summary>
-        /// <param name="other">The comparison target tensor.</param>
-        /// <returns>A binary indicator <see cref="ITensor"/>.</returns>
 
         public ITensor Equal(ITensor other) => Comparison(other, (a, b) => Math.Abs(a - b) < 1e-6f ? 1f : 0f);
-        /// <summary>
-        /// Tests element-wise greater than condition against another tensor.
-        /// </summary>
-        /// <param name="other">The comparison target tensor.</param>
-        /// <returns>A binary indicator <see cref="ITensor"/>.</returns>
-
         public ITensor GreaterThan(ITensor other) => Comparison(other, (a, b) => a > b ? 1f : 0f);
-        /// <summary>
-        /// Tests element-wise greater than or equal to condition against another tensor.
-        /// </summary>
-        /// <param name="other">The comparison target tensor.</param>
-        /// <returns>A binary indicator <see cref="ITensor"/>.</returns>
-
         public ITensor GreaterThanOrEqual(ITensor other) => Comparison(other, (a, b) => a >= b ? 1f : 0f);
-        /// <summary>
-        /// Tests element-wise less than or equal to condition against another tensor.
-        /// </summary>
-        /// <param name="other">The comparison target tensor.</param>
-        /// <returns>A binary indicator <see cref="ITensor"/>.</returns>
-
         public ITensor LessEqual(ITensor other) => Comparison(other, (a, b) => a <= b ? 1f : 0f);
-        /// <summary>
-        /// Selects elements from trueValue or falseValue depending on evaluation condition of condition tensor.
-        /// </summary>
-        /// <param name="condition">The selection binary mask tensor.</param>
-        /// <param name="trueValue">The values selected where condition evaluated to 1.</param>
-        /// <param name="falseValue">The values selected where condition evaluated to 0.</param>
-        /// <returns>A merged conditional output <see cref="ITensor"/>.</returns>
 
         public ITensor Where(ITensor condition, ITensor trueValue, ITensor falseValue)
         {
@@ -1300,43 +884,17 @@ namespace ArborNet.Core.Backends
             for (int i = 0; i < resultData.Length; i++)
             {
                 int idx = GetBroadcastIndex(i, strideA, resultShape.Dimensions);
-                resultData[i] = c._data[idx % c._data.Length] > 0
-                    ? tv._data[idx % tv._data.Length]
-                    : fv._data[idx % fv._data.Length];
+                resultData[i] = c._data[idx % c._length] > 0
+                    ? tv._data[idx % tv._length]
+                    : fv._data[idx % fv._length];
             }
             return new Tensor(new CpuBackend(resultData, resultShape, false, _device));
         }
-        /// <summary>
-        /// Applies hyperbolic tangent activation function to every element.
-        /// </summary>
-        /// <returns>An activated <see cref="ITensor"/>.</returns>
 
         public ITensor Tanh() => new Tanh().Forward(this);
-        /// <summary>
-        /// Applies Rectified Linear Unit activation function to every element.
-        /// </summary>
-        /// <returns>An activated <see cref="ITensor"/>.</returns>
-
         public ITensor Relu() => new ReLU().Forward(this);
-        /// <summary>
-        /// Applies standard sigmoid activation function to every element.
-        /// </summary>
-        /// <returns>An activated <see cref="ITensor"/>.</returns>
-
         public ITensor Sigmoid() => new Sigmoid().Forward(this);
-        /// <summary>
-        /// Applies softmax normalization activation across the targeted dimension axis.
-        /// </summary>
-        /// <param name="axis">The dimension along which normalization is calculated.</param>
-        /// <returns>A normalized probability distribution <see cref="ITensor"/>.</returns>
-
         public ITensor Softmax(int axis = -1) => new Softmax(axis).Forward(this);
-        /// <summary>
-        /// Slices elements out of multidimensional space utilizing start, end and step constraints.
-        /// </summary>
-        /// <param name="slices">A parameters tuple array indicating start, end and step for each dimension.</param>
-        /// <returns>A sliced <see cref="ITensor"/> subset.</returns>
-        /// <exception cref="ArgumentException">Thrown if input slices length does not match tensor rank.</exception>
 
         public ITensor Slice(params (int start, int end, int step)[] slices)
         {
@@ -1408,11 +966,6 @@ namespace ArborNet.Core.Backends
             }
             return new Tensor(output);
         }
-        /// <summary>
-        /// Computes layout stride offset size for a given dimension index.
-        /// </summary>
-        /// <param name="dim">The targeted dimension index.</param>
-        /// <returns>The stride offset value for the specified dimension.</returns>
 
         private int GetStride(int dim)
         {
@@ -1420,15 +973,6 @@ namespace ArborNet.Core.Backends
             for (int i = dim + 1; i < _shape.Rank; i++) stride *= _shape.Dimensions[i];
             return stride;
         }
-        /// <summary>
-        /// Concatenates this tensor with other CPU-based tensors along a specified axis.
-        /// </summary>
-        /// <param name="others">An enumerable list of tensors to join.</param>
-        /// <param name="axis">The structural dimension axis along which data will be concatenated.</param>
-        /// <returns>A unified, concatenated <see cref="ITensor"/>.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if others is null.</exception>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown if the concatenation axis is out of bounds.</exception>
-        /// <exception cref="ArgumentException">Thrown if tensor dimensions do not match except along the concatenation axis.</exception>
 
         public ITensor Concat(IEnumerable<ITensor> others, int axis = 0)
         {
@@ -1445,7 +989,6 @@ namespace ArborNet.Core.Backends
             if (actualAxis < 0 || actualAxis >= rank)
                 throw new ArgumentOutOfRangeException(nameof(axis), "Concatenation axis is out of range.");
 
-            // Verify shapes match on all dimensions except the concatenation axis
             for (int i = 0; i < rank; i++)
             {
                 if (i == actualAxis) continue;
@@ -1456,14 +999,12 @@ namespace ArborNet.Core.Backends
                 }
             }
 
-            // Calculate output shape dimensions
             int[] newDims = _shape.Dimensions.ToArray();
             newDims[actualAxis] = all.Sum(t => t.Shape[actualAxis]);
             var outShape = new TensorShape(newDims);
 
             float[] resultData = new float[outShape.TotalElements];
 
-            // Compute dimensions before, on, and after the target concatenation axis
             int outerSize = 1;
             for (int i = 0; i < actualAxis; i++) outerSize *= newDims[i];
 
@@ -1473,14 +1014,13 @@ namespace ArborNet.Core.Backends
             int outAxisStride = innerSize;
             int outOuterStride = newDims[actualAxis] * innerSize;
 
-            // Copy slices from source tensors into the target layout
             for (int o = 0; o < outerSize; o++)
             {
                 int currentAxisOffset = 0;
                 foreach (var t in all)
                 {
                     int tAxisSize = t.Shape[actualAxis];
-                    float[] tData = t.ToArray(); // Safe array copy (respects ArrayPool bounds)
+                    float[] tData = t.ToArray();
 
                     int tAxisStride = innerSize;
                     int tOuterStride = tAxisSize * innerSize;
@@ -1495,9 +1035,11 @@ namespace ArborNet.Core.Backends
                 }
             }
 
-            var rawResult = new CpuBackend(resultData, outShape, _requiresGrad || all.Any(t => t.RequiresGrad), _device);
+            var rawResult = new CpuBackend(resultData, outShape, _requiresGrad || all.Any(t => t.RequiresGrad), _device)
+            {
+                Inputs = all.ToArray()
+            };
 
-            // Register autograd backward pass for Concatenation
             if (rawResult.RequiresGrad)
             {
                 var capturedAll = all.ToList();
@@ -1542,11 +1084,6 @@ namespace ArborNet.Core.Backends
 
             return new Tensor(rawResult);
         }
-        /// <summary>
-        /// Unwraps high level wrapper class variants to expose their core inner <see cref="CpuBackend"/> implementation.
-        /// </summary>
-        /// <param name="tensor">The high level interface wrapper tensor instance.</param>
-        /// <returns>An extracted underlying <see cref="CpuBackend"/> instance.</returns>
 
         public static CpuBackend Unwrap(ITensor tensor)
         {
@@ -1559,119 +1096,68 @@ namespace ArborNet.Core.Backends
             }
             return (CpuBackend)current;
         }
-        /// <summary>
-        /// Triggers autograd backward pass starting from this node, calculating and accumulating gradients of parameters.
-        /// </summary>
-        /// <param name="gradient">The incoming backpropagated gradient tensor (defaults to a scalar 1.0 tensor if null).</param>
 
         public void Backward(ITensor? gradient = null)
         {
             ArborNet.Core.Autograd.AutogradEngine.Backward(this, gradient);
         }
-        /// <summary>
-        /// Clears the accumulated gradients and autograd tracking states for this node in the graph.
-        /// </summary>
 
         public void ClearGrad()
         {
             _grad = null;
             _gradFn = null;
         }
-        /// <summary>
-        /// Creates a zero-initialized tensor.
-        /// </summary>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A zero-filled <see cref="ITensor"/>.</returns>
 
         public static ITensor Zeros(TensorShape shape, Device? device = null) => new CpuBackend(shape, false, device);
-        /// <summary>
-        /// Creates a one-initialized tensor.
-        /// </summary>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A one-filled <see cref="ITensor"/>.</returns>
 
         public static ITensor Ones(TensorShape shape, Device? device = null)
         {
-            var data = new float[shape.TotalElements];
-            Array.Fill(data, 1f);
-            return new CpuBackend(data, shape, false, device);
+            var result = new CpuBackend(shape, false, device);
+            for (int i = 0; i < result._length; i++)
+            {
+                result._data[i] = 1f;
+            }
+            return result;
         }
-        /// <summary>
-        /// Creates a 1D, single element scalar tensor wrapper containing a specified float value.
-        /// </summary>
-        /// <param name="value">The scalar numeric element.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A scalar <see cref="ITensor"/>.</returns>
 
         public static ITensor FromScalar(float value, Device? device = null) => new CpuBackend(new[] { value }, new TensorShape(1), false, device);
-        /// <summary>
-        /// Creates a CPU tensor by wrapping an existing flat array of floats.
-        /// </summary>
-        /// <param name="data">The preallocated float elements array.</param>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A new <see cref="ITensor"/>.</returns>
 
         public static ITensor FromArray(float[] data, TensorShape shape, Device? device = null) => new CpuBackend(data, shape, false, device);
-        /// <summary>
-        /// Creates a random tensor initialized with uniform distribution values between [0, 1).
-        /// </summary>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A random uniform <see cref="ITensor"/>.</returns>
 
         public static ITensor Rand(TensorShape shape, Device? device = null)
         {
             var r = new Random();
-            return new CpuBackend(Enumerable.Range(0, shape.TotalElements).Select(_ => (float)r.NextDouble()).ToArray(), shape, false, device);
+            var result = new CpuBackend(shape, false, device);
+            for (int i = 0; i < result._length; i++)
+            {
+                result._data[i] = (float)r.NextDouble();
+            }
+            return result;
         }
-        /// <summary>
-        /// Creates a random tensor initialized with values between [-1, 1).
-        /// </summary>
-        /// <param name="shape">The shape of the tensor.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>A random <see cref="ITensor"/>.</returns>
 
         public static ITensor Randn(TensorShape shape, Device? device = null)
         {
             var r = new Random();
-            return new CpuBackend(Enumerable.Range(0, shape.TotalElements).Select(_ => (float)(r.NextDouble() * 2 - 1)).ToArray(), shape, false, device);
+            var result = new CpuBackend(shape, false, device);
+            for (int i = 0; i < result._length; i++)
+            {
+                result._data[i] = (float)(r.NextDouble() * 2.0 - 1.0);
+            }
+            return result;
         }
-        /// <summary>
-        /// Creates a 2D identity matrix tensor containing 1s along the diagonal.
-        /// </summary>
-        /// <param name="size">The dimensional width and height of the matrix.</param>
-        /// <param name="device">The targeted device (defaults to CPU).</param>
-        /// <returns>An identity matrix <see cref="ITensor"/>.</returns>
 
         public static ITensor Eye(int size, Device? device = null)
         {
-            var data = new float[size * size];
-            for (int i = 0; i < size; i++) data[i * size + i] = 1f;
-            return new CpuBackend(data, new TensorShape(size, size), false, device);
+            var result = new CpuBackend(new TensorShape(size, size), false, device);
+            for (int i = 0; i < size; i++)
+            {
+                result._data[i * size + i] = 1f;
+            }
+            return result;
         }
-        /// <summary>
-        /// Finds index coordinates for the minimum values encountered along a target axis.
-        /// </summary>
-        /// <param name="axis">The dimension axis to scan.</param>
-        /// <returns>An index-based <see cref="ITensor"/>.</returns>
 
         public ITensor ArgMin(int axis) => ReduceIndices(axis, false);
-        /// <summary>
-        /// Finds index coordinates for the maximum values encountered along a target axis.
-        /// </summary>
-        /// <param name="axis">The dimension axis to scan.</param>
-        /// <returns>An index-based <see cref="ITensor"/>.</returns>
-
         public ITensor ArgMax(int axis) => ReduceIndices(axis, true);
-        /// <summary>
-        /// Helper reduction utility finding index locations of minimum or maximum values along an axis.
-        /// </summary>
-        /// <param name="axis">The targeted dimension axis index.</param>
-        /// <param name="findMax">True to locate the maximum value index; false to locate the minimum value index.</param>
-        /// <returns>An index-based <see cref="ITensor"/> containing the extreme index coordinates.</returns>
 
         private ITensor ReduceIndices(int axis, bool findMax)
         {
@@ -1701,11 +1187,6 @@ namespace ArborNet.Core.Backends
                 }
             return new Tensor(new CpuBackend(output, new TensorShape(dims.Where((_, idx) => idx != axis).ToArray()), false, _device));
         }
-        /// <summary>
-        /// Calculates the cumulative sum of elements along a target dimensional axis.
-        /// </summary>
-        /// <param name="axis">The dimensional axis along which elements are accumulated.</param>
-        /// <returns>A cumulative sum <see cref="ITensor"/>.</returns>
 
         public ITensor CumSum(int axis)
         {
@@ -1715,7 +1196,10 @@ namespace ArborNet.Core.Backends
             int outer = 1; for (int i = 0; i < axis; i++) outer *= dims[i];
             int inner = 1; for (int i = axis + 1; i < dims.Length; i++) inner *= dims[i];
 
-            float[] output = new float[_data.Length];
+            var result = new CpuBackend(_shape, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
             for (int o = 0; o < outer; o++)
                 for (int i = 0; i < inner; i++)
                 {
@@ -1725,11 +1209,10 @@ namespace ArborNet.Core.Backends
                     {
                         int currentIdx = baseIdx + r * inner;
                         runningSum += _data[currentIdx];
-                        output[currentIdx] = runningSum;
+                        result._data[currentIdx] = runningSum;
                     }
                 }
 
-            var result = new CpuBackend(output, _shape.Clone(), _requiresGrad, _device);
             if (_requiresGrad)
             {
                 var capturedSelf = this;
@@ -1756,9 +1239,6 @@ namespace ArborNet.Core.Backends
             }
             return new Tensor(result);
         }
-        /// <summary>
-        /// Disposes of the tensor, returning memory back to the shared array pool if it was rented.
-        /// </summary>
 
         public void Dispose()
         {
@@ -1770,9 +1250,6 @@ namespace ArborNet.Core.Backends
             }
         }
 
-        /// <summary>
-        /// Finalizes an instance of the <see cref="CpuBackend"/> class, ensuring rented resources are released.
-        /// </summary>
         ~CpuBackend() => Dispose();
     }
 }

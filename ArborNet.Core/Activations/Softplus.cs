@@ -102,9 +102,10 @@ namespace ArborNet.Activations
             {
                 output.GradFn = gradOutput =>
                 {
-                    // Derivative of softplus is sigmoid(x)
                     ITensor sigmoid = new Sigmoid().Forward(input);
-                    return gradOutput.Multiply(sigmoid);
+                    var gradInput = gradOutput.Multiply(sigmoid);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #define EXPORT extern "C" __declspec(dllexport)
+#define TILE_DIM 16
 
 // =================================================================================
 // 0. UTILITIES, STRUCTS & COMPLEX SYSTEM
@@ -41,14 +42,23 @@ __device__ inline ComplexDouble complex_tanh(ComplexDouble z) {
     return { (tx * (1.0 + ty * ty)) / denom, (ty * (1.0 - tx * tx)) / denom };
 }
 
-// Optimized global launch configuration helper
 inline void get_launch_config(int n, int* blockSize, int* gridSize) {
     *blockSize = 256;
     *gridSize = (n + *blockSize - 1) / *blockSize;
 }
 
+// Inline GPU Pseudorandom Number Generator (XorShift32)
+__device__ inline uint32_t xorshift32(uint32_t* state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
 // =================================================================================
-// 1. CUDA KERNELS
+// 1. MATHEMATICAL & ACTIVATION KERNELS
 // =================================================================================
 
 __global__ void add_kernel(const float* a, const float* b, float* c, int n) {
@@ -91,9 +101,19 @@ __global__ void greater_than_kernel(const float* a, const float* b, float* c, in
     for (int stride = blockDim.x * gridDim.x; i < n; i += stride) c[i] = (a[i] > b[i]) ? 1.0f : 0.0f;
 }
 
+__global__ void greater_equal_kernel(const float* a, const float* b, float* c, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) c[i] = (a[i] >= b[i]) ? 1.0f : 0.0f;
+}
+
 __global__ void less_than_kernel(const float* a, const float* b, float* c, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     for (int stride = blockDim.x * gridDim.x; i < n; i += stride) c[i] = (a[i] < b[i]) ? 1.0f : 0.0f;
+}
+
+__global__ void less_equal_kernel(const float* a, const float* b, float* c, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) c[i] = (a[i] <= b[i]) ? 1.0f : 0.0f;
 }
 
 __global__ void where_kernel(const float* cond, const float* a, const float* b, float* c, int n) {
@@ -178,6 +198,81 @@ __global__ void mul_scalar_kernel(float* out, float scalar, int n) {
     for (int stride = blockDim.x * gridDim.x; i < n; i += stride) out[i] *= scalar;
 }
 
+__global__ void mul_scalar_inplace_kernel(float* data, float val, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) data[i] *= val;
+}
+
+__global__ void add_scalar_kernel(const float* in, float* out, int n, float val) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) out[i] = in[i] + val;
+}
+
+__global__ void add_scalar_inplace_kernel(float* data, float val, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) data[i] += val;
+}
+
+__global__ void sub_scalar_kernel(const float* in, float* out, int n, float val) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) out[i] = in[i] - val;
+}
+
+__global__ void sub_scalar_inplace_kernel(float* data, float val, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) data[i] -= val;
+}
+
+__global__ void mul_scalar_out_kernel(const float* in, float* out, int n, float val) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) out[i] = in[i] * val;
+}
+
+__global__ void div_scalar_kernel(const float* in, float* out, int n, float val) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) {
+        out[i] = (val != 0.0f) ? (in[i] / val) : 0.0f;
+    }
+}
+
+__global__ void set_eye_kernel(float* data, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = size * size;
+    for (int stride = blockDim.x * gridDim.x; i < total; i += stride) {
+        int r = i / size;
+        int c = i % size;
+        data[i] = (r == c) ? 1.0f : 0.0f;
+    }
+}
+
+__global__ void rand_kernel(float* data, int n, uint32_t seed) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) {
+        uint32_t state = seed + i;
+        if (state == 0) state = 1;
+        xorshift32(&state);
+        data[i] = (float)(xorshift32(&state) % 1000000) / 1000000.0f;
+    }
+}
+
+__global__ void randn_kernel(float* data, int n, uint32_t seed) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int stride = blockDim.x * gridDim.x; i < n; i += stride) {
+        uint32_t state = seed + i;
+        if (state == 0) state = 1;
+        xorshift32(&state);
+        float u1 = (float)(xorshift32(&state) % 1000000) / 1000000.0f;
+        xorshift32(&state);
+        float u2 = (float)(xorshift32(&state) % 1000000) / 1000000.0f;
+        if (u1 == 0.0f) u1 = 0.0001f;
+        data[i] = sqrtf(-2.0f * logf(u1)) * cosf(6.283185307f * u2);
+    }
+}
+
+// =================================================================================
+// 2. STRUCTURAL, GATHER & REDUCTION KERNELS
+// =================================================================================
+
 __global__ void transpose_2d_kernel(const float* in, float* out, int rows, int cols) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total = rows * cols;
@@ -188,7 +283,6 @@ __global__ void transpose_2d_kernel(const float* in, float* out, int rows, int c
     }
 }
 
-// FIXED: Correct multidimensional transposition addressing the fatal out-of-bounds bug
 __global__ void GeneralTransposeKernel(const float* __restrict__ input, float* __restrict__ output,
     ShapeInfo shape, ShapeInfo outShape, ShapeInfo perm, int rank, long long totalElements) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
@@ -197,19 +291,16 @@ __global__ void GeneralTransposeKernel(const float* __restrict__ input, float* _
     int outCoords[12];
     long long remainder = idx;
 
-    // Decompose output thread index using the output dimensions
     for (int i = rank - 1; i >= 0; --i) {
         outCoords[i] = remainder % outShape.data[i];
         remainder /= outShape.data[i];
     }
 
-    // Remap coordinates back to the original input mapping rules
     int inCoords[12];
     for (int i = 0; i < rank; ++i) {
         inCoords[perm.data[i]] = outCoords[i];
     }
 
-    // Convert input coordinates to a flat input index
     long long inputIdx = 0;
     long long stride = 1;
     for (int i = rank - 1; i >= 0; --i) {
@@ -333,7 +424,35 @@ __global__ void gather_grad_kernel(const float* gradOut, const float* indices, f
     }
 }
 
-// FIXED: High-performance Shared Memory reduction replacing global atomic collisions
+__global__ void embedding_forward_kernel(const float* weights, const float* indices, float* output, int num_words, int embed_dim, int total_indices) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = total_indices * embed_dim;
+    for (int i = idx; i < total; i += blockDim.x * gridDim.x) {
+        int word_idx = i / embed_dim;
+        int dim_idx = i % embed_dim;
+        int token = (int)indices[word_idx];
+        if (token >= 0 && token < num_words) {
+            output[i] = weights[token * embed_dim + dim_idx];
+        }
+        else {
+            output[i] = 0.0f;
+        }
+    }
+}
+
+__global__ void embedding_backward_kernel(const float* grad_out, const float* indices, float* grad_weights, int num_words, int embed_dim, int total_indices) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = total_indices * embed_dim;
+    for (int i = idx; i < total; i += blockDim.x * gridDim.x) {
+        int word_idx = i / embed_dim;
+        int dim_idx = i % embed_dim;
+        int token = (int)indices[word_idx];
+        if (token >= 0 && token < num_words) {
+            atomicAdd(&grad_weights[token * embed_dim + dim_idx], grad_out[i]);
+        }
+    }
+}
+
 __global__ void sum_all_reduction_kernel(const float* in, float* out, int n) {
     __shared__ float sdata[256];
     unsigned int tid = threadIdx.x;
@@ -347,7 +466,6 @@ __global__ void sum_all_reduction_kernel(const float* in, float* out, int n) {
     sdata[tid] = local_sum;
     __syncthreads();
 
-    // Loop-unrolled reduction in shared memory
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
             sdata[tid] += sdata[tid + s];
@@ -457,8 +575,6 @@ __global__ void cumsum_kernel(const float* input, float* output, int outer, int 
     }
 }
 
-// FIXED: Highly optimized 2D Shared Memory Tiling Matrix Multiplication (16x16 tiles)
-#define TILE_DIM 16
 __global__ void matmul_tiled_kernel(const float* A, const float* B, float* C, int m, int n, int k) {
     __shared__ float s_A[TILE_DIM][TILE_DIM];
     __shared__ float s_B[TILE_DIM][TILE_DIM];
@@ -562,8 +678,8 @@ __global__ void holonomic_kernel(const ComplexDouble* inputs, const ComplexDoubl
     for (int n = idx; n < neuronCount; n += blockDim.x * gridDim.x) {
         ComplexDouble psi = { 0.0, 0.0 };
         for (int i = 0; i < inputSize; i++) {
-            ComplexDouble prod = complex_mul(inputs[i], weights[n * inputSize + i]);
-            psi = complex_add(psi, prod);
+            ComplexDouble p = complex_mul(inputs[i], weights[n * inputSize + i]);
+            psi = complex_add(psi, p);
         }
 
         ComplexDouble z = { 0.0, 0.0 };
@@ -577,8 +693,248 @@ __global__ void holonomic_kernel(const ComplexDouble* inputs, const ComplexDoubl
 }
 
 // =================================================================================
-// 2. DISPATCHERS (CPU Side Wrappers for P/Invoke)
-// NOTE: Removed all blocking system synchronization blockages (cudaDeviceSynchronize)
+// 3. HIGH-PERFORMANCE 2D/3D CONVOLUTION KERNELS
+// =================================================================================
+
+__global__ void conv2d_forward_kernel(
+    const float* __restrict__ input, const float* __restrict__ weight, float* __restrict__ output,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_elements = batch * out_channels * out_h * out_w;
+    if (idx >= total_elements) return;
+
+    int w_out = idx % out_w;
+    int h_out = (idx / out_w) % out_h;
+    int c_out = (idx / (out_w * out_h)) % out_channels;
+    int b = idx / (out_w * out_h * out_channels);
+
+    float sum = 0.0f;
+    for (int c_in = 0; c_in < in_channels; ++c_in) {
+        for (int kh = 0; kh < k_h; ++kh) {
+            int h_in = h_out * stride - padding + kh;
+            if (h_in >= 0 && h_in < in_h) {
+                for (int kw = 0; kw < k_w; ++kw) {
+                    int w_in = w_out * stride - padding + kw;
+                    if (w_in >= 0 && w_in < in_w) {
+                        int input_offset = ((b * in_channels + c_in) * in_h + h_in) * in_w + w_in;
+                        int weight_offset = ((c_out * in_channels + c_in) * k_h + kh) * k_w + kw;
+                        sum += input[input_offset] * weight[weight_offset];
+                    }
+                }
+            }
+        }
+    }
+    output[idx] = sum;
+}
+
+__global__ void conv2d_grad_weight_kernel(
+    const float* __restrict__ input, const float* __restrict__ grad_out, float* __restrict__ grad_weight,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_weights = out_channels * in_channels * k_h * k_w;
+    if (idx >= total_weights) return;
+
+    int kw = idx % k_w;
+    int kh = (idx / k_w) % k_h;
+    int c_in = (idx / (k_w * k_h)) % in_channels;
+    int c_out = idx / (k_w * k_h * in_channels);
+
+    float sum = 0.0f;
+    for (int b = 0; b < batch; ++b) {
+        for (int oh = 0; oh < out_h; ++oh) {
+            int ih = oh * stride - padding + kh;
+            if (ih >= 0 && ih < in_h) {
+                for (int ow = 0; ow < out_w; ++ow) {
+                    int iw = ow * stride - padding + kw;
+                    if (iw >= 0 && iw < in_w) {
+                        int input_offset = ((b * in_channels + c_in) * in_h + ih) * in_w + iw;
+                        int grad_offset = ((b * out_channels + c_out) * out_h + oh) * out_w + ow;
+                        sum += input[input_offset] * grad_out[grad_offset];
+                    }
+                }
+            }
+        }
+    }
+    grad_weight[idx] = sum;
+}
+
+__global__ void conv2d_grad_input_kernel(
+    const float* __restrict__ grad_out, const float* __restrict__ weight, float* __restrict__ grad_input,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_elements = batch * in_channels * in_h * in_w;
+    if (idx >= total_elements) return;
+
+    int w_in = idx % in_w;
+    int h_in = (idx / in_w) % in_h;
+    int c_in = (idx / (in_w * in_h)) % in_channels;
+    int b = idx / (in_w * in_h * in_channels);
+
+    float sum = 0.0f;
+    for (int c_out = 0; c_out < out_channels; ++c_out) {
+        for (int kh = 0; kh < k_h; ++kh) {
+            int h_out = h_in + padding - kh;
+            if (h_out % stride == 0) {
+                h_out /= stride;
+                if (h_out >= 0 && h_out < out_h) {
+                    for (int kw = 0; kw < k_w; ++kw) {
+                        int w_out = w_in + padding - kw;
+                        if (w_out % stride == 0) {
+                            w_out /= stride;
+                            if (w_out >= 0 && w_out < out_w) {
+                                int grad_offset = ((b * out_channels + c_out) * out_h + h_out) * out_w + w_out;
+                                int weight_offset = ((c_out * in_channels + c_in) * k_h + kh) * k_w + kw;
+                                sum += grad_out[grad_offset] * weight[weight_offset];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    grad_input[idx] = sum;
+}
+
+__global__ void conv3d_forward_kernel(
+    const float* __restrict__ input, const float* __restrict__ weight, float* __restrict__ output,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_elements = batch * out_channels * out_d * out_h * out_w;
+    if (idx >= total_elements) return;
+
+    int w_out = idx % out_w;
+    int h_out = (idx / out_w) % out_h;
+    int d_out = (idx / (out_w * out_h)) % out_d;
+    int c_out = (idx / (out_w * out_h * out_d)) % out_channels;
+    int b = idx / (out_w * out_h * out_d * out_channels);
+
+    float sum = 0.0f;
+    for (int c_in = 0; c_in < in_channels; ++c_in) {
+        for (int kd = 0; kd < k_d; ++kd) {
+            int d_in = d_out * stride - padding + kd;
+            if (d_in >= 0 && d_in < in_d) {
+                for (int kh = 0; kh < k_h; ++kh) {
+                    int h_in = h_out * stride - padding + kh;
+                    if (h_in >= 0 && h_in < in_h) {
+                        for (int kw = 0; kw < k_w; ++kw) {
+                            int w_in = w_out * stride - padding + kw;
+                            if (w_in >= 0 && w_in < in_w) {
+                                int input_offset = (((b * in_channels + c_in) * in_d + d_in) * in_h + h_in) * in_w + w_in;
+                                int weight_offset = (((c_out * in_channels + c_in) * k_d + kd) * k_h + kh) * k_w + kw;
+                                sum += input[input_offset] * weight[weight_offset];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    output[idx] = sum;
+}
+
+__global__ void conv3d_grad_weight_kernel(
+    const float* __restrict__ input, const float* __restrict__ grad_out, float* __restrict__ grad_weight,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_weights = out_channels * in_channels * k_d * k_h * k_w;
+    if (idx >= total_weights) return;
+
+    int kw = idx % k_w;
+    int kh = (idx / k_w) % k_h;
+    int kd = (idx / (k_w * k_h)) % k_d;
+    int c_in = (idx / (k_w * k_h * k_d)) % in_channels;
+    int c_out = idx / (k_w * k_h * k_d * in_channels);
+
+    float sum = 0.0f;
+    for (int b = 0; b < batch; ++b) {
+        for (int od = 0; od < out_d; ++od) {
+            int id = od * stride - padding + kd;
+            if (id >= 0 && id < in_d) {
+                for (int oh = 0; oh < out_h; ++oh) {
+                    int ih = oh * stride - padding + kh;
+                    if (ih >= 0 && ih < in_h) {
+                        for (int ow = 0; ow < out_w; ++ow) {
+                            int iw = ow * stride - padding + kw;
+                            if (iw >= 0 && iw < in_w) {
+                                int input_offset = (((b * in_channels + c_in) * in_d + id) * in_h + ih) * in_w + iw;
+                                int grad_offset = (((b * out_channels + c_out) * out_d + od) * out_h + oh) * out_w + ow;
+                                sum += input[input_offset] * grad_out[grad_offset];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    grad_weight[idx] = sum;
+}
+
+__global__ void conv3d_grad_input_kernel(
+    const float* __restrict__ grad_out, const float* __restrict__ weight, float* __restrict__ grad_input,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_elements = batch * in_channels * in_d * in_h * in_w;
+    if (idx >= total_elements) return;
+
+    int w_in = idx % in_w;
+    int h_in = (idx / in_w) % in_h;
+    int d_in = (idx / (in_w * in_h)) % in_d;
+    int c_in = (idx / (in_w * in_h * d_in)) % in_channels;
+    int b = idx / (in_w * in_h * d_in * in_channels);
+
+    float sum = 0.0f;
+    for (int c_out = 0; c_out < out_channels; ++c_out) {
+        for (int kd = 0; kd < k_d; ++kd) {
+            int d_out = d_in + padding - kd;
+            if (d_out % stride == 0) {
+                d_out /= stride;
+                if (d_out >= 0 && d_out < out_d) {
+                    for (int kh = 0; kh < k_h; ++kh) {
+                        int h_out = h_in + padding - kh;
+                        if (h_out % stride == 0) {
+                            h_out /= stride;
+                            if (h_out >= 0 && h_out < out_h) {
+                                for (int kw = 0; kw < k_w; ++kw) {
+                                    int w_out = w_in + padding - kw;
+                                    if (w_out % stride == 0) {
+                                        w_out /= stride;
+                                        if (w_out >= 0 && w_out < out_w) {
+                                            int grad_offset = (((b * out_channels + c_out) * out_d + d_out) * out_h + h_out) * out_w + w_out;
+                                            int weight_offset = (((c_out * in_channels + c_in) * k_d + kd) * k_h + kh) * k_w + kw;
+                                            sum += grad_out[grad_offset] * weight[weight_offset];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    grad_input[idx] = sum;
+}
+
+// =================================================================================
+// 4. DISPATCHERS (CPU Side Wrappers for P/Invoke)
 // =================================================================================
 
 EXPORT void NativeAdd(const float* a, const float* b, float* c, int n) {
@@ -613,8 +969,16 @@ EXPORT void NativeGreaterThan(const float* a, const float* b, float* c, int n) {
     int bs, gs; get_launch_config(n, &bs, &gs); greater_than_kernel << <gs, bs >> > (a, b, c, n);
 }
 
+EXPORT void NativeGreaterThanOrEqual(const float* a, const float* b, float* c, int n) {
+    int bs, gs; get_launch_config(n, &bs, &gs); greater_equal_kernel << <gs, bs >> > (a, b, c, n);
+}
+
 EXPORT void NativeLessThan(const float* a, const float* b, float* c, int n) {
     int bs, gs; get_launch_config(n, &bs, &gs); less_than_kernel << <gs, bs >> > (a, b, c, n);
+}
+
+EXPORT void NativeLessEqual(const float* a, const float* b, float* c, int n) {
+    int bs, gs; get_launch_config(n, &bs, &gs); less_equal_kernel << <gs, bs >> > (a, b, c, n);
 }
 
 EXPORT void NativeWhere(const float* cond, const float* a, const float* b, float* c, int n) {
@@ -687,6 +1051,50 @@ EXPORT void NativePowScalar(const float* in, float* out, int n, float exponent) 
     int bs, gs; get_launch_config(n, &bs, &gs); pow_scalar_kernel << <gs, bs >> > (in, out, n, exponent);
 }
 
+EXPORT void NativeAddScalar(const float* in, float* out, int n, float value) {
+    int bs, gs; get_launch_config(n, &bs, &gs); add_scalar_kernel << <gs, bs >> > (in, out, n, value);
+}
+
+EXPORT void NativeSubtractScalar(const float* in, float* out, int n, float value) {
+    int bs, gs; get_launch_config(n, &bs, &gs); sub_scalar_kernel << <gs, bs >> > (in, out, n, value);
+}
+
+EXPORT void NativeMultiplyScalar(const float* in, float* out, int n, float value) {
+    int bs, gs; get_launch_config(n, &bs, &gs); mul_scalar_out_kernel << <gs, bs >> > (in, out, n, value);
+}
+
+EXPORT void NativeDivideScalar(const float* in, float* out, int n, float value) {
+    int bs, gs; get_launch_config(n, &bs, &gs); div_scalar_kernel << <gs, bs >> > (in, out, n, value);
+}
+
+EXPORT void NativeAddScalarInPlace(float* data, float value, int n) {
+    int bs, gs; get_launch_config(n, &bs, &gs); add_scalar_inplace_kernel << <gs, bs >> > (data, value, n);
+}
+
+EXPORT void NativeSubtractScalarInPlace(float* data, float value, int n) {
+    int bs, gs; get_launch_config(n, &bs, &gs); sub_scalar_inplace_kernel << <gs, bs >> > (data, value, n);
+}
+
+EXPORT void NativeMultiplyScalarInPlace(float* data, float value, int n) {
+    int bs, gs; get_launch_config(n, &bs, &gs); mul_scalar_inplace_kernel << <gs, bs >> > (data, value, n);
+}
+
+EXPORT void NativeEye(float* data, int size) {
+    int total = size * size;
+    int bs, gs; get_launch_config(total, &bs, &gs);
+    set_eye_kernel << <gs, bs >> > (data, size);
+}
+
+EXPORT void NativeRand(float* data, int n, unsigned int seed) {
+    int bs, gs; get_launch_config(n, &bs, &gs);
+    rand_kernel << <gs, bs >> > (data, n, seed);
+}
+
+EXPORT void NativeRandn(float* data, int n, unsigned int seed) {
+    int bs, gs; get_launch_config(n, &bs, &gs);
+    randn_kernel << <gs, bs >> > (data, n, seed);
+}
+
 EXPORT void NativeTranspose(const float* in, float* out, int rows, int cols) {
     int bs, gs; get_launch_config(rows * cols, &bs, &gs); transpose_2d_kernel << <gs, bs >> > (in, out, rows, cols);
 }
@@ -694,7 +1102,6 @@ EXPORT void NativeTranspose(const float* in, float* out, int rows, int cols) {
 EXPORT void NativeSumAll(const float* in, float* out, int n) {
     int bs = 256;
     int gs = (n + bs - 1) / bs;
-    // ZERO native global output buffer to correctly initialize sum state
     cudaMemset(out, 0, sizeof(float));
     sum_all_reduction_kernel << <gs, bs >> > (in, out, n);
 }
@@ -727,7 +1134,7 @@ EXPORT void NativeGeneralTranspose(const float* input, float* output, const int*
 
     for (int i = 0; i < rank; ++i) {
         d_shape.data[i] = shape[i];
-        d_outShape.data[i] = shape[perm[i]]; // Calculate output shape using transpose layout rules
+        d_outShape.data[i] = shape[perm[i]];
         d_perm.data[i] = perm[i];
         totalElements *= shape[i];
     }
@@ -807,6 +1214,16 @@ EXPORT void NativeGatherGrad(const float* gradOut, const float* indices, float* 
     gather_grad_kernel << <gs, bs >> > (gradOut, indices, gradIn, batch, classes);
 }
 
+EXPORT void NativeEmbedding(const float* weights, const float* indices, float* output, int num_words, int embed_dim, int total_indices) {
+    int bs, gs; get_launch_config(total_indices * embed_dim, &bs, &gs);
+    embedding_forward_kernel << <gs, bs >> > (weights, indices, output, num_words, embed_dim, total_indices);
+}
+
+EXPORT void NativeEmbeddingGrad(const float* grad_out, const float* indices, float* grad_weights, int num_words, int embed_dim, int total_indices) {
+    int bs, gs; get_launch_config(total_indices * embed_dim, &bs, &gs);
+    embedding_backward_kernel << <gs, bs >> > (grad_out, indices, grad_weights, num_words, embed_dim, total_indices);
+}
+
 EXPORT void NativeSlice(const float* input, float* output,
     const int* inShape, const int* outShape,
     const int* starts, const int* steps, int rank) {
@@ -863,6 +1280,72 @@ EXPORT void NativeConcat(const float** inputs, float* output, int numInputs,
         }
         currentOffset += inputConcatSize;
     }
+}
+
+EXPORT void NativeConv2DForward(
+    const float* input, const float* weight, float* output,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int total_elements = batch * out_channels * out_h * out_w;
+    int bs, gs; get_launch_config(total_elements, &bs, &gs);
+    conv2d_forward_kernel << <gs, bs >> > (input, weight, output, batch, in_channels, in_h, in_w, out_channels, out_h, out_w, k_h, k_w, stride, padding);
+}
+
+EXPORT void NativeConv2DGradWeight(
+    const float* input, const float* grad_out, float* grad_weight,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int total_weights = out_channels * in_channels * k_h * k_w;
+    int bs, gs; get_launch_config(total_weights, &bs, &gs);
+    conv2d_grad_weight_kernel << <gs, bs >> > (input, grad_out, grad_weight, batch, in_channels, in_h, in_w, out_channels, out_h, out_w, k_h, k_w, stride, padding);
+}
+
+EXPORT void NativeConv2DGradInput(
+    const float* grad_out, const float* weight, float* grad_input,
+    int batch, int in_channels, int in_h, int in_w,
+    int out_channels, int out_h, int out_w,
+    int k_h, int k_w, int stride, int padding)
+{
+    int total_elements = batch * in_channels * in_h * in_w;
+    int bs, gs; get_launch_config(total_elements, &bs, &gs);
+    conv2d_grad_input_kernel << <gs, bs >> > (grad_out, weight, grad_input, batch, in_channels, in_h, in_w, out_channels, out_h, out_w, k_h, k_w, stride, padding);
+}
+
+EXPORT void NativeConv3DForward(
+    const float* input, const float* weight, float* output,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int total_elements = batch * out_channels * out_d * out_h * out_w;
+    int bs, gs; get_launch_config(total_elements, &bs, &gs);
+    conv3d_forward_kernel << <gs, bs >> > (input, weight, output, batch, in_channels, in_d, in_h, in_w, out_channels, out_d, out_h, out_w, k_d, k_h, k_w, stride, padding);
+}
+
+EXPORT void NativeConv3DGradWeight(
+    const float* input, const float* grad_out, float* grad_weight,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int total_weights = out_channels * in_channels * k_d * k_h * k_w;
+    int bs, gs; get_launch_config(total_weights, &bs, &gs);
+    conv3d_grad_weight_kernel << <gs, bs >> > (input, grad_out, grad_weight, batch, in_channels, in_d, in_h, in_w, out_channels, out_d, out_h, out_w, k_d, k_h, k_w, stride, padding);
+}
+
+EXPORT void NativeConv3DGradInput(
+    const float* grad_out, const float* weight, float* grad_input,
+    int batch, int in_channels, int in_d, int in_h, int in_w,
+    int out_channels, int out_d, int out_h, int out_w,
+    int k_d, int k_h, int k_w, int stride, int padding)
+{
+    int total_elements = batch * in_channels * in_d * in_h * in_w;
+    int bs, gs; get_launch_config(total_elements, &bs, &gs);
+    conv3d_grad_input_kernel << <gs, bs >> > (grad_out, weight, grad_input, batch, in_channels, in_d, in_h, in_w, out_channels, out_d, out_h, out_w, k_d, k_h, k_w, stride, padding);
 }
 
 EXPORT int InvokeHolonomicKernel(const ComplexDouble* inputs, const ComplexDouble* weights,

@@ -113,7 +113,9 @@ namespace ArborNet.Losses
                 {
                     var grad = clamped.Subtract(targets)
                                      .Divide(clamped.Multiply(one.Subtract(clamped)));
-                    return grad.Multiply(gradOutput);
+                    var gradInput = grad.Multiply(gradOutput);
+                    predictions.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

@@ -103,7 +103,9 @@ namespace ArborNet.Activations
                     var sech2 = one.Subtract(tanhSq);
                     var phi = half.Multiply(one.Add(tanh))
                               .Add(input.Multiply(sech2).Multiply(sqrt2pi).Multiply(half));
-                    return gradOutput.Multiply(phi);
+                    var gradInput = gradOutput.Multiply(phi);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

@@ -85,7 +85,9 @@ namespace ArborNet.Core.Activations
                 output.GradFn = gradOutput =>
                 {
                     var denom = Tensor.Ones(input.Shape, input.Device).Add(input.Abs());
-                    return gradOutput.Multiply(Tensor.Ones(input.Shape, input.Device).Divide(denom.Multiply(denom)));
+                    var gradInput = gradOutput.Multiply(Tensor.Ones(input.Shape, input.Device).Divide(denom.Multiply(denom)));
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

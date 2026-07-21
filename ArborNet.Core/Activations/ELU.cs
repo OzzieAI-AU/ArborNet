@@ -103,7 +103,12 @@ namespace ArborNet.Activations
 
             if (input.RequiresGrad)
             {
-                output.GradFn = gradOutput => ComputeGrad(input, gradOutput);
+                output.GradFn = gradOutput =>
+                {
+                    var gradInput = ComputeGrad(input, gradOutput);
+                    input.AccumulateGrad(gradInput);
+                    return gradInput;
+                };
             }
             return output;
         }

@@ -108,7 +108,9 @@ namespace ArborNet.Losses
                     var positive = err.GreaterThan(zero);
                     var sign = positive.Where(positive, Tensor.Ones(err.Shape, device), Tensor.Ones(err.Shape, device).Negate());
                     var grad = err.Where(isQuadratic, err, deltaTensor.Multiply(sign));
-                    return grad.Multiply(gradOutput);
+                    var gradInput = grad.Multiply(gradOutput);
+                    predictions.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

@@ -94,7 +94,9 @@ namespace ArborNet.Losses
                 {
                     var gradMask = margin.GreaterThan(zero);
                     var gradPred = targets.Multiply(-1.0f).Where(gradMask, targets.Multiply(-1.0f), zero);
-                    return gradPred.Multiply(gradOutput);
+                    var gradInput = gradPred.Multiply(gradOutput);
+                    predictions.AccumulateGrad(gradInput);
+                    return gradInput;
                 };
             }
 

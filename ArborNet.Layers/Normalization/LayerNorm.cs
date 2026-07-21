@@ -46,6 +46,7 @@ namespace ArborNet.Layers.Normalization
         /// <param name="useAffine">Enable gamma/beta. Default: true.</param>
         public LayerNorm(int[] normalizedShape, float eps = 1e-5f, bool useAffine = true)
             : base(new TensorShape(normalizedShape).TotalElements, eps, useAffine) { }
+
         /// <summary>
         /// Normalizes the input tensor across its feature dimension during the forward pass of the neural network.
         /// </summary>
@@ -62,14 +63,14 @@ namespace ArborNet.Layers.Normalization
         /// This ensures that the elements along the designated normalization dimensions have a mean of 0 and a variance of 1.
         /// </remarks>
         /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
-
         protected override ITensor Normalize(ITensor input)
         {
-            var mean = input.Mean(-1);
-            var var_ = input.Subtract(mean).Pow(2).Mean(-1);
+            var mean = input.Mean(-1, keepDims: true);
+            var var_ = input.Subtract(mean).Pow(2).Mean(-1, keepDims: true);
             var std = var_.Add(Eps).Sqrt();
             return input.Subtract(mean).Divide(std);
         }
+
         /// <summary>
         /// Computes the gradient of the loss function with respect to the input tensor during the backward pass (backpropagation).
         /// </summary>
@@ -87,32 +88,24 @@ namespace ArborNet.Layers.Normalization
         /// </para>
         /// </remarks>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="input"/> or <paramref name="gradOutput"/> is null.</exception>
-
         protected override ITensor ComputeGradInput(ITensor input, ITensor gradOutput)
         {
-            var mean = input.Mean(-1);
-            var var_ = input.Subtract(mean).Pow(2).Mean(-1);
+            var mean = input.Mean(-1, keepDims: true);
+            var var_ = input.Subtract(mean).Pow(2).Mean(-1, keepDims: true);
             var std = var_.Add(Eps).Sqrt();
             var normalized = input.Subtract(mean).Divide(std);
 
-            var N = Tensor.FromScalar((float)input.Shape[input.Shape.Rank - 1]);
+            var N = Tensor.FromScalar((float)input.Shape[input.Shape.Rank - 1], input.Device);
             var ivar = std.Pow(-1);
 
-            var gradNorm = gradOutput.Multiply(UseAffine ? Gamma : Tensor.Ones(input.Shape));
+            var gradNorm = gradOutput.Multiply(UseAffine ? Gamma : Tensor.Ones(input.Shape, input.Device));
 
-            // dL/dmean = sum(gradNorm * normalized * (-ivar)) / N
-            var dL_dmean = gradNorm.Multiply(normalized).Multiply(ivar.Negate()).Sum(-1).Divide(N);
+            var sum_gradNorm = gradNorm.Sum(-1, keepDims: true);
+            var sum_gradNorm_norm = gradNorm.Multiply(normalized).Sum(-1, keepDims: true);
 
-            // dL/dvar = sum(gradNorm * normalized * (-0.5 * ivar^3) * (input - mean)) / N
-            var dL_dvar = gradNorm.Multiply(normalized).Multiply(input.Subtract(mean))
-                                         .Multiply(ivar.Pow(3).Multiply(-0.5f)).Sum(-1).Divide(N);
-
-            // dL/dx = gradNorm * ivar + (2 * (x - mean) / N) * (dL_dmean * ivar + dL_dvar * ivar^3 * (-0.5))
-            var term1 = gradNorm.Multiply(ivar);
-            var dx_mean = input.Subtract(mean).Multiply(N.Divide(2f));
-            var term2 = dx_mean.Multiply(dL_dmean.Multiply(ivar));
-            var term3 = dx_mean.Multiply(dL_dvar.Multiply(ivar.Pow(3).Multiply(-0.5f)));
-            return term1.Add(term2).Add(term3);
+            return gradNorm.Subtract(sum_gradNorm.Divide(N))
+                           .Subtract(normalized.Multiply(sum_gradNorm_norm.Divide(N)))
+                           .Multiply(ivar);
         }
     }
 }

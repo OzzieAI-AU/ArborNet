@@ -12,13 +12,16 @@ namespace ArborNet.Layers
 
     #region Using Statements:
 
-    using System;
-    using System.Collections.Generic;
-    using System.Threading.Tasks;
+    using ArborNet.Core.Backends;
+    using ArborNet.Core.Devices;
     using ArborNet.Core.Functional;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Layers;
+    using ArborNet.Core.Native.PInvoke;
     using ArborNet.Core.Tensors;
+    using System;
+    using System.Collections.Generic;
+    using System.Threading.Tasks;
     /// <summary>
     /// Implements a 3D convolutional layer.
     /// </summary>
@@ -33,303 +36,193 @@ namespace ArborNet.Layers
 
     public class Conv3D : BaseLayer
     {
-        /// <summary>
-        /// Gets the learnable weights of the 3D convolutional kernel.
-        /// </summary>
-        /// <value>
-        /// An <see cref="ITensor"/> of shape [outChannels, inChannels, kernelDepth, kernelHeight, kernelWidth].
-        /// </value>
-        public ITensor Weight { get; private set; }
-        /// <summary>
-        /// Gets the optional learnable bias tensor.
-        /// </summary>
-        /// <value>
-        /// An <see cref="ITensor"/> of shape [outChannels], or <see langword="null"/> if bias is disabled.
-        /// </value>
-        public ITensor? Bias { get; private set; }
-
-        private readonly int inChannels, outChannels, kernelDepth, kernelHeight, kernelWidth;
+        private readonly int _inChannels;
+        private readonly int _outChannels;
+        private readonly int _kDepth;
+        private readonly int _kHeight;
+        private readonly int _kWidth;
         private readonly int _stride;
         private readonly int _padding;
+        private readonly bool _useBias;
 
-        public Conv3D(int inChannels, int outChannels, int kernelDepth, int kernelHeight, int kernelWidth,
-                      bool hasBias = true, int stride = 1, int padding = 0)
+        private readonly ITensor _weight;
+        private readonly ITensor? _bias;
+
+        public Conv3D(int inChannels, int outChannels, int kernelDepth, int kernelHeight, int kernelWidth, bool hasBias = true, int stride = 1, int padding = 0)
         {
-            this.inChannels = inChannels;
-            this.outChannels = outChannels;
-            this.kernelDepth = kernelDepth;
-            this.kernelHeight = kernelHeight;
-            this.kernelWidth = kernelWidth;
+            _inChannels = inChannels;
+            _outChannels = outChannels;
+            _kDepth = kernelDepth;
+            _kHeight = kernelHeight;
+            _kWidth = kernelWidth;
             _stride = stride;
             _padding = padding;
+            _useBias = hasBias;
 
-            Weight = Initializers.XavierUniform(new TensorShape(outChannels, inChannels, kernelDepth, kernelHeight, kernelWidth));
-            Weight.RequiresGrad = true;
-
-            if (hasBias)
+            this.device = Device.CUDA;
+            if (this.device.Type == DeviceType.CUDA && !CUDA.IsAvailable())
             {
-                Bias = Tensor.Zeros(new TensorShape(outChannels));
-                Bias.RequiresGrad = true;
+                this.device = Device.CPU;
+            }
+
+            _weight = Initializers.XavierUniform(new TensorShape(outChannels, inChannels, kernelDepth, kernelHeight, kernelWidth), this.device);
+            _weight.RequiresGrad = true;
+
+            if (_useBias)
+            {
+                _bias = Tensor.Zeros(new TensorShape(outChannels), this.device);
+                _bias.RequiresGrad = true;
             }
         }
-        /// <summary>
-        /// Executes the forward pass of the 3D convolutional layer.
-        /// </summary>
-        /// <param name="input">The input tensor, expected to be 5D with shape [batch, channels, depth, height, width].</param>
-        /// <returns>A new <see cref="ITensor"/> containing the activation outputs of the convolution.</returns>
-        /// <exception cref="ArgumentException">
-        /// Thrown if the <paramref name="input"/> is not 5D, or if its channel dimension does not match <see cref="inChannels"/>.
-        /// </exception>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if the output dimensions (computed from input dimensions, kernel size, stride, and padding) are non-positive.
-        /// </exception>
 
         public override ITensor Forward(ITensor input)
         {
-            if (input.Shape.Rank != 5)
-                throw new ArgumentException("Conv3D expects 5D input [B, C, D, H, W]");
-
-            if (input.Shape[1] != inChannels)
-                throw new ArgumentException($"Input channels ({input.Shape[1]}) does not match expected inChannels ({inChannels})");
+            ValidateInput(input, expectedRank: 5);
 
             int batch = input.Shape[0];
             int inD = input.Shape[2];
             int inH = input.Shape[3];
             int inW = input.Shape[4];
 
-            int outD = (inD + 2 * _padding - kernelDepth) / _stride + 1;
-            int outH = (inH + 2 * _padding - kernelHeight) / _stride + 1;
-            int outW = (inW + 2 * _padding - kernelWidth) / _stride + 1;
+            int outD = (inD + 2 * _padding - _kDepth) / _stride + 1;
+            int outH = (inH + 2 * _padding - _kHeight) / _stride + 1;
+            int outW = (inW + 2 * _padding - _kWidth) / _stride + 1;
 
-            if (outD <= 0 || outH <= 0 || outW <= 0)
-                throw new InvalidOperationException("Output dimensions are non-positive. Check kernel/stride/padding.");
+            var outShape = new TensorShape(batch, _outChannels, outD, outH, outW);
 
-            var outputShape = new TensorShape(batch, outChannels, outD, outH, outW);
-            float[] inData = input.ToArray();
-            float[] wData = Weight.ToArray();
-            float[] outData = new float[outputShape.TotalElements];
-
-            int inStrideC = inD * inH * inW;
-            int inStrideD = inH * inW;
-            int inStrideH = inW;
-            int wStrideC = kernelDepth * kernelHeight * kernelWidth;
-            int outStrideC = outD * outH * outW;
-            int outStrideD = outH * outW;
-            int outStrideH = outW;
-
-            // Fused parallel forward pass
-            Parallel.For(0, batch * outChannels, idx =>
+            if (input.Device.Type == DeviceType.CUDA && CUDA.IsAvailable())
             {
-                int b = idx / outChannels;
-                int oc = idx % outChannels;
+                var result = new Tensor(new CudaBackend(outShape, input.RequiresGrad || _weight.RequiresGrad, this.device));
 
-                for (int od = 0; od < outD; od++)
+                var inRaw = Tensor.Unwrap(input) as CudaBackend ?? throw new InvalidOperationException("Input must reside on CUDA GPU.");
+                var wRaw = Tensor.Unwrap(_weight) as CudaBackend ?? throw new InvalidOperationException("Weights must reside on CUDA GPU.");
+                var resRaw = Tensor.Unwrap(result) as CudaBackend ?? throw new InvalidOperationException("Initialization failed.");
+
+                CUDA.NativeConv3DForward(
+                    inRaw.DevicePointer, wRaw.DevicePointer, resRaw.DevicePointer,
+                    batch, _inChannels, inD, inH, inW, _outChannels, outD, outH, outW, _kDepth, _kHeight, _kWidth, _stride, _padding);
+
+                if (input.RequiresGrad || _weight.RequiresGrad)
                 {
-                    for (int oh = 0; oh < outH; oh++)
+                    var capturedInput = input;
+                    var capturedWeight = _weight;
+
+                    result.GradFn = gradOutput =>
                     {
-                        for (int ow = 0; ow < outW; ow++)
+                        var goRaw = Tensor.Unwrap(gradOutput) as CudaBackend ?? throw new InvalidOperationException("Gradient output must reside on CUDA.");
+
+                        if (capturedWeight.RequiresGrad)
                         {
-                            float sum = 0f;
-                            int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
+                            var gradWeight = new Tensor(new CudaBackend(capturedWeight.Shape, false, this.device));
+                            var gwRaw = Tensor.Unwrap(gradWeight) as CudaBackend ?? throw new InvalidOperationException("Gradient allocation failed.");
 
-                            for (int ic = 0; ic < inChannels; ic++)
-                            {
-                                int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
-                                int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
+                            CUDA.NativeConv3DGradWeight(
+                                inRaw.DevicePointer, goRaw.DevicePointer, gwRaw.DevicePointer,
+                                batch, _inChannels, inD, inH, inW, _outChannels, outD, outH, outW, _kDepth, _kHeight, _kWidth, _stride, _padding);
 
-                                for (int kd = 0; kd < kernelDepth; kd++)
-                                {
-                                    int id = od * _stride - _padding + kd;
-                                    if (id < 0 || id >= inD) continue;
-
-                                    int inDepthOffset = inChannelOffset + id * inStrideD;
-                                    int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
-
-                                    for (int kh = 0; kh < kernelHeight; kh++)
-                                    {
-                                        int ih = oh * _stride - _padding + kh;
-                                        if (ih < 0 || ih >= inH) continue;
-
-                                        int inRowOffset = inDepthOffset + ih * inStrideH;
-                                        int wRowOffset = wDepthOffset + kh * kernelWidth;
-
-                                        for (int kw = 0; kw < kernelWidth; kw++)
-                                        {
-                                            int iw = ow * _stride - _padding + kw;
-                                            if (iw >= 0 && iw < inW)
-                                            {
-                                                sum += inData[inRowOffset + iw] * wData[wRowOffset + kw];
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            outData[outIdx] = sum;
+                            capturedWeight.AccumulateGrad(gradWeight);
                         }
-                    }
-                }
-            });
 
-            var result = Tensor.FromArray(outData, outputShape, input.Device);
-
-            if (Bias != null)
-            {
-                var biasReshaped = Bias.Reshape(new int[] { 1, outChannels, 1, 1, 1 });
-                result = result.Add(biasReshaped.BroadcastTo(result.Shape));
-            }
-
-            if (input.RequiresGrad || Weight.RequiresGrad)
-            {
-                var capturedInput = input;
-                var capturedWeight = Weight;
-
-                result.GradFn = gradOutput =>
-                {
-                    var goData = gradOutput.ToArray();
-                    var gradInputData = new float[capturedInput.Shape.TotalElements];
-                    var gradWeightData = new float[capturedWeight.Shape.TotalElements];
-
-                    // Lock-free weight gradients partitioned by output channels
-                    Parallel.For(0, outChannels, oc =>
-                    {
-                        for (int b = 0; b < batch; b++)
+                        var gradInput = new Tensor(new CudaBackend(capturedInput.Shape, false, this.device));
+                        if (capturedInput.RequiresGrad)
                         {
-                            for (int od = 0; od < outD; od++)
+                            var giRaw = Tensor.Unwrap(gradInput) as CudaBackend ?? throw new InvalidOperationException("Gradient allocation failed.");
+
+                            CUDA.NativeConv3DGradInput(
+                                goRaw.DevicePointer, wRaw.DevicePointer, giRaw.DevicePointer,
+                                batch, _inChannels, inD, inH, inW, _outChannels, outD, outH, outW, _kDepth, _kHeight, _kWidth, _stride, _padding);
+
+                            capturedInput.AccumulateGrad(gradInput);
+                            capturedInput.GradFn?.Invoke(gradInput);
+                        }
+
+                        if (_useBias && _bias != null && _bias.RequiresGrad)
+                        {
+                            var gradBias = gradOutput.Sum(4, false).Sum(3, false).Sum(2, false).Sum(0, false);
+                            _bias.AccumulateGrad(gradBias);
+                        }
+
+                        return gradInput;
+                    };
+                }
+
+                if (_useBias && _bias != null)
+                {
+                    var biasReshaped = _bias.Reshape(1, _outChannels, 1, 1, 1);
+                    result = (Tensor)result.Add(biasReshaped.BroadcastTo(result.Shape));
+                }
+
+                return result;
+            }
+            else
+            {
+                // HIGH-PERFORMANCE PARALLEL CPU FALLBACK
+                float[] inData = input.ToArray();
+                float[] wData = _weight.ToArray();
+                float[] outData = new float[outShape.TotalElements];
+
+                Parallel.For(0, batch, b =>
+                {
+                    for (int oc = 0; oc < _outChannels; oc++)
+                    {
+                        for (int od = 0; od < outD; od++)
+                        {
+                            for (int oh = 0; oh < outH; oh++)
                             {
-                                for (int oh = 0; oh < outH; oh++)
+                                for (int ow = 0; ow < outW; ow++)
                                 {
-                                    for (int ow = 0; ow < outW; ow++)
+                                    float sum = 0f;
+                                    for (int ic = 0; ic < _inChannels; ic++)
                                     {
-                                        int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
-                                        float goVal = goData[outIdx];
-
-                                        for (int ic = 0; ic < inChannels; ic++)
+                                        for (int kd = 0; kd < _kDepth; kd++)
                                         {
-                                            int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
-                                            int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
-
-                                            for (int kd = 0; kd < kernelDepth; kd++)
+                                            int id = od * _stride - _padding + kd;
+                                            if (id >= 0 && id < inD)
                                             {
-                                                int id = od * _stride - _padding + kd;
-                                                if (id < 0 || id >= inD) continue;
-
-                                                int inDepthOffset = inChannelOffset + id * inStrideD;
-                                                int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
-
-                                                for (int kh = 0; kh < kernelHeight; kh++)
+                                                for (int kh = 0; kh < _kHeight; kh++)
                                                 {
                                                     int ih = oh * _stride - _padding + kh;
-                                                    if (ih < 0 || ih >= inH) continue;
-
-                                                    int inRowOffset = inDepthOffset + ih * inStrideH;
-                                                    int wRowOffset = wDepthOffset + kh * kernelWidth;
-
-                                                    for (int kw = 0; kw < kernelWidth; kw++)
+                                                    if (ih >= 0 && ih < inH)
                                                     {
-                                                        int iw = ow * _stride - _padding + kw;
-                                                        if (iw >= 0 && iw < inW)
+                                                        for (int kw = 0; kw < _kWidth; kw++)
                                                         {
-                                                            int wIdx = wRowOffset + kw;
-                                                            gradWeightData[wIdx] += inData[inRowOffset + iw] * goVal;
+                                                            int iw = ow * _stride - _padding + kw;
+                                                            if (iw >= 0 && iw < inW)
+                                                            {
+                                                                int inIdx = (((b * _inChannels + ic) * inD + id) * inH + ih) * inW + iw;
+                                                                int wIdx = ((((oc * _inChannels + ic) * _kDepth + kd) * _kHeight + kh) * _kWidth + kw);
+                                                                sum += inData[inIdx] * wData[wIdx];
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                    int outIdx = (((b * _outChannels + oc) * outD + od) * outH + oh) * outW + ow;
+                                    outData[outIdx] = sum;
                                 }
                             }
                         }
-                    });
-
-                    // Lock-free input gradients partitioned by batch and input channels
-                    Parallel.For(0, batch * inChannels, index =>
-                    {
-                        int b = index / inChannels;
-                        int ic = index % inChannels;
-
-                        int inChannelOffset = b * inChannels * inStrideC + ic * inStrideC;
-
-                        for (int oc = 0; oc < outChannels; oc++)
-                        {
-                            int wChannelOffset = oc * inChannels * wStrideC + ic * wStrideC;
-
-                            for (int od = 0; od < outD; od++)
-                            {
-                                for (int oh = 0; oh < outH; oh++)
-                                {
-                                    for (int ow = 0; ow < outW; ow++)
-                                    {
-                                        int outIdx = b * outChannels * outStrideC + oc * outStrideC + od * outStrideD + oh * outStrideH + ow;
-                                        float goVal = goData[outIdx];
-
-                                        for (int kd = 0; kd < kernelDepth; kd++)
-                                        {
-                                            int id = od * _stride - _padding + kd;
-                                            if (id < 0 || id >= inD) continue;
-
-                                            int inDepthOffset = inChannelOffset + id * inStrideD;
-                                            int wDepthOffset = wChannelOffset + kd * kernelHeight * kernelWidth;
-
-                                            for (int kh = 0; kh < kernelHeight; kh++)
-                                            {
-                                                int ih = oh * _stride - _padding + kh;
-                                                if (ih < 0 || ih >= inH) continue;
-
-                                                int inRowOffset = inDepthOffset + ih * inStrideH;
-                                                int wRowOffset = wDepthOffset + kh * kernelWidth;
-
-                                                for (int kw = 0; kw < kernelWidth; kw++)
-                                                {
-                                                    int iw = ow * _stride - _padding + kw;
-                                                    if (iw >= 0 && iw < inW)
-                                                    {
-                                                        gradInputData[inRowOffset + iw] += wData[wRowOffset + kw] * goVal;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                    var gradInput = Tensor.FromArray(gradInputData, capturedInput.Shape, input.Device);
-                    var gradWeight = Tensor.FromArray(gradWeightData, capturedWeight.Shape, input.Device);
-
-                    if (capturedWeight.RequiresGrad)
-                    {
-                        capturedWeight.AccumulateGrad(gradWeight);
                     }
+                });
 
-                    if (Bias != null && Bias.RequiresGrad)
-                    {
-                        var gradBias = gradOutput.Sum(4, false).Sum(3, false).Sum(2, false).Sum(0, false);
-                        Bias.AccumulateGrad(gradBias);
-                    }
+                var result = Tensor.FromArray(outData, outShape, input.Device);
 
-                    if (capturedInput.RequiresGrad)
-                    {
-                        capturedInput.AccumulateGrad(gradInput);
-                        capturedInput.GradFn?.Invoke(gradInput);
-                    }
+                if (_useBias && _bias != null)
+                {
+                    var biasReshaped = _bias.Reshape(1, _outChannels, 1, 1, 1);
+                    result = (Tensor)result.Add(biasReshaped.BroadcastTo(result.Shape));
+                }
 
-                    return gradInput;
-                };
+                return result;
             }
-
-            return result;
         }
-        /// <summary>
-        /// Enumerates all of the learnable parameter tensors associated with this layer.
-        /// </summary>
-        /// <returns>An enumerable collection containing the layer's <see cref="Weight"/>, and <see cref="Bias"/> (if configured).</returns>
 
         public override IEnumerable<ITensor> Parameters()
         {
-            yield return Weight;
-            if (Bias != null) yield return Bias;
+            yield return _weight;
+            if (_useBias && _bias != null) yield return _bias;
         }
     }
 }
