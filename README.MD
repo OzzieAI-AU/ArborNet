@@ -28,21 +28,39 @@ Most .NET ML libraries feel like rigid wrappers. **ArborNet** feels like an exte
 OzzieAI.ArborNet prioritizes a '`Fluent API`'. No more verbose boilerplate; just clean, expressive code that chains together effortlessly.
 
 ```csharp
-// Define a tensor on the GPU
-var x = Tensor.Randn(new Shape(3, 256, 256), Device.Cuda)
-              .RequiresGrad(true);
+// Full model in one fluent chain
+var logits = X.Rand(1, 128)          // batch, seq
+              .Embedding(50257, 768)
+              .PositionalEncoding(768)
+              .TransformerBlock(768, 12)
+              .TransformerBlock(768, 12)
+              .LayerNorm()
+              .Linear(50257)
+              .Softmax(-1);
 
-// Chain operations with a beautiful, fluent interface
-var output = x.Multiply(2.5f)
-              .Add(1.0f)
-              .Relu()
-              .CumSum(axis: 1) // Optimized holonomic pathing
-              .Softmax();
+// Instant full models
+var gpt = X.GPT(vocabSize: 50257, dModel: 768, nLayers: 12);
+var llama = X.Llama3(vocabSize: 128256);
+var vit = X.ViT(imageSize: 224, patchSize: 16, numClasses: 1000);
 
-// Backpropagate with ease
-output.Backward();
+// Vision pipeline
+var pred = X.FromArray(imageData, 1, 3, 224, 224)
+            .Cuda()
+            .Conv2D(64, 7, stride: 2, padding: 3)
+            .BatchNorm(64)
+            .ReLU()
+            .MaxPool2D()
+            .ResNet50(1000)
+            .Softmax();
 
-Console.WriteLine($"Gradient at x: {x.Grad}");
+// Generation
+foreach (var token in X.From(promptTensor).GenerateStream(model, tokenizer, "Once upon a time"))
+    Console.Write(token);
+
+// Data augmentation
+var aug = X.FromArray(batch, 32, 3, 32, 32)
+           .Augment()
+           .Resize(224, 224);
 ```
 
 ---
