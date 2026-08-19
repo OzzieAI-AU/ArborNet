@@ -435,9 +435,22 @@ namespace ArborNet.Core.Backends
 
         private ITensor FallbackToCpu(Func<ITensor, ITensor> cpuOp)
         {
-            var cpuEquivalent = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, _device);
-            return cpuEquivalent; // Returned directly; a full system transfers back to WebGPU via `.To(Device.WebGPU)`
+            if (cpuOp == null) throw new ArgumentNullException(nameof(cpuOp));
+
+            var cpu = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, Device.CPU);
+            ITensor cpuResult = cpuOp(cpu);
+            try
+            {
+                return cpuResult.To(_device);
+            }
+            finally
+            {
+                if (!ReferenceEquals(cpuResult, cpu) && cpuResult is IDisposable d)
+                    d.Dispose();
+                (cpu as IDisposable)?.Dispose();
+            }
         }
+
 
         public void Dispose()
         {

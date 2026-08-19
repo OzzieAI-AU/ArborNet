@@ -41,6 +41,10 @@ namespace ArborNet.Core.Backends
         private readonly object _lock = new();
         private ITensor[] _inputs = Array.Empty<ITensor>();
 
+        private uint _version;
+        public uint Version => _version;
+
+
         private const string ObjCDll = "/usr/lib/libobjc.A.dylib";
         /// <summary>
         /// Registers a selector name with the Objective-C runtime.
@@ -166,8 +170,6 @@ namespace ArborNet.Core.Backends
         /// Gets the flat underlying data as an array of single-precision floating-point numbers.
         /// </summary>
         public float[] Data => ToArray();
-
-        public uint Version => throw new NotImplementedException();
 
         public MetalBackend(TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
@@ -334,6 +336,8 @@ namespace ArborNet.Core.Backends
             var otherArr = other.ToArray();
             lock (_lock)
             {
+                _version++;
+
                 var selfArr = ToArray();
                 Accelerate.Add(selfArr, selfArr, otherArr, _shape.TotalElements);
                 SetData(selfArr);
@@ -348,6 +352,8 @@ namespace ArborNet.Core.Backends
         {
             lock (_lock)
             {
+                _version++;
+
                 var selfArr = ToArray();
                 Parallel.For(0, _shape.TotalElements, i => selfArr[i] += scalar);
                 SetData(selfArr);
@@ -363,6 +369,8 @@ namespace ArborNet.Core.Backends
             var otherArr = other.ToArray();
             lock (_lock)
             {
+                _version++;
+
                 var selfArr = ToArray();
                 Accelerate.Subtract(selfArr, selfArr, otherArr, _shape.TotalElements);
                 SetData(selfArr);
@@ -384,6 +392,8 @@ namespace ArborNet.Core.Backends
             var otherArr = other.ToArray();
             lock (_lock)
             {
+                _version++;
+
                 var selfArr = ToArray();
                 Accelerate.Multiply(selfArr, selfArr, otherArr, _shape.TotalElements);
                 SetData(selfArr);
@@ -398,6 +408,8 @@ namespace ArborNet.Core.Backends
         {
             lock (_lock)
             {
+                _version++;
+
                 var selfArr = ToArray();
                 Parallel.For(0, _shape.TotalElements, i => selfArr[i] *= scalar);
                 SetData(selfArr);

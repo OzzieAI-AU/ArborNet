@@ -15,7 +15,12 @@ namespace ArborNet.Core.Native
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Threading;
+
     using ArborNet.Core.Native.PInvoke;
+
+    #endregion
+
     /// <summary>
     /// Provides a thread-safe memory pool for managing CUDA memory allocations.
     /// Reduces allocation overhead by caching and reusing freed buffers using a power-of-two bucket strategy.
@@ -31,9 +36,6 @@ namespace ArborNet.Core.Native
     /// the pool's memory footprint.
     /// </para>
     /// </remarks>
-
-    #endregion
-
     public sealed class CudaMemoryPool
     {
         private static readonly Lazy<CudaMemoryPool> _instance =

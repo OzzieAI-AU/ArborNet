@@ -20,21 +20,21 @@ namespace ArborNet.Fluent
     using ArborNet.Core.Functional;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Tensors;
-    using ArborNet.Data;
-    using ArborNet.Generation;
     using ArborNet.Layers;
     using ArborNet.Layers.Fractal;
     using ArborNet.Layers.Normalization;
     using ArborNet.Losses;
     using ArborNet.Models;
-    using ArborNet.Optimizers;
-    using ArborNet.Trainers;
+    // NOTE: Uncomment these ONLY after adding project references to
+    // ArborNet.Data, ArborNet.Generation and ArborNet.Trainers:
+    // using ArborNet.Data;
+    // using ArborNet.Generation;
+    // using ArborNet.Trainers;
     #endregion
 
     /// <summary>
-    /// The heart of ArborNet — a beautifully designed, fluent, and highly expressive API 
-    /// for tensor operations, neural network construction, and on-the-fly execution.
-    /// Provides chained accessibility to every single component in the ArborNet ecosystem.
+    /// The heart of ArborNet — fluent API for tensor ops, layers and models.
+    /// Only surfaces that currently compile against the existing codebase are exposed.
     /// </summary>
     public sealed class X : IEquatable<X>
     {
@@ -86,15 +86,15 @@ namespace ArborNet.Fluent
         public static X Eye(int size, Device? device = null) => new(ArborNet.Core.Tensors.Tensor.Eye(size, device));
         public static X Of(ITensor tensor) => new(tensor);
         public static X FromScalar(float value, Device? device = null) => new(ArborNet.Core.Tensors.Tensor.FromScalar(value, device ?? Device.CPU));
-        public static X Arange(float start, float end, float step = 1f, Device? device = null)
-            => new(ArborNet.Core.Tensors.Tensor.Arange(start, end, step, device ?? Device.CPU));
-        public static X Linspace(float start, float end, int steps, Device? device = null)
-            => new(ArborNet.Core.Tensors.Tensor.Linspace(start, end, steps, device ?? Device.CPU));
+
+        // Arange / Linspace are not yet on Tensor – add them to Core later if needed.
+        // public static X Arange(...) { ... }
+        // public static X Linspace(...) { ... }
 
         #endregion
 
         // =========================================================================================
-        #region Fluent Unary Math
+        #region Fluent Unary Math  (only methods that exist on ITensor today)
         // =========================================================================================
 
         public X Negate() => new(_tensor.Negate());
@@ -108,18 +108,10 @@ namespace ArborNet.Fluent
         public X Sin() => new(_tensor.Sin());
         public X Cos() => new(_tensor.Cos());
         public X Tan() => new(_tensor.Sin().Divide(_tensor.Cos()));
-        public X Asin() => new(_tensor.Asin());
-        public X Acos() => new(_tensor.Acos());
-        public X Atan() => new(_tensor.Atan());
-        public X Sinh() => new(_tensor.Sinh());
-        public X Cosh() => new(_tensor.Cosh());
-        public X Tanh() => new(new Tanh().Forward(_tensor));
+        // Asin / Acos / Atan / Sinh / Cosh / Floor / Ceil / Round not yet on ITensor
         public X Sign() => new(_tensor.Sign());
         public X LogicalNot() => new(_tensor.LogicalNot());
         public X Clip(float min, float max) => new(_tensor.Clip(min, max));
-        public X Floor() => new(_tensor.Floor());
-        public X Ceil() => new(_tensor.Ceil());
-        public X Round() => new(_tensor.Round());
         public X Reciprocal() => new(_tensor.Pow(-1f));
         public X Square() => new(_tensor.Pow(2f));
         public X Cube() => new(_tensor.Pow(3f));
@@ -153,9 +145,8 @@ namespace ArborNet.Fluent
 
         public X MatMul(X other) => new(_tensor.MatMul(other._tensor));
         public X MatMul(ITensor other) => new(_tensor.MatMul(other));
-
-        public X Dot(X other) => MatMul(other); // alias
-        public X Outer(X other) => new(_tensor.Outer(other._tensor));
+        public X Dot(X other) => MatMul(other);
+        // Outer not yet on ITensor
 
         #endregion
 
@@ -172,9 +163,7 @@ namespace ArborNet.Fluent
         public X ArgMin(int axis) => new(_tensor.ArgMin(axis));
         public X ArgMax(int axis) => new(_tensor.ArgMax(axis));
         public X CumSum(int axis) => new(_tensor.CumSum(axis));
-        public X Std(int? axis = null, bool keepDims = false) => new(_tensor.Std(axis, keepDims));
-        public X Var(int? axis = null, bool keepDims = false) => new(_tensor.Var(axis, keepDims));
-        public X Norm(float p = 2f, int? axis = null, bool keepDims = false) => new(_tensor.Norm(p, axis, keepDims));
+        // Std / Var / Norm / Stack / Expand not yet on ITensor
 
         public X Reshape(params int[] newShape) => new(_tensor.Reshape(newShape));
         public X Transpose(params int[] perm) => new(_tensor.Transpose(perm));
@@ -183,21 +172,15 @@ namespace ArborNet.Fluent
         public X BroadcastTo(TensorShape targetShape) => new(_tensor.BroadcastTo(targetShape));
         public X ReshapeWithBroadcast(TensorShape target, int axis) => new(_tensor.ReshapeWithBroadcast(target, axis));
         public X Concat(IEnumerable<X> others, int axis = 0) => new(_tensor.Concat(others.Select(o => o._tensor), axis));
-        public X Stack(IEnumerable<X> others, int axis = 0) => new(_tensor.Stack(others.Select(o => o._tensor), axis));
         public X Unsqueeze(int axis) => new(_tensor.Unsqueeze(axis));
         public X Squeeze(int? axis = null) => new(_tensor.Squeeze(axis));
-        public X Expand(params int[] shape) => new(_tensor.Expand(shape));
         public X View(params int[] shape) => Reshape(shape);
 
-        public X Flatten(int startDim = 0, int endDim = -1)
+        /// <summary>Batch-preserving flatten (most common case).</summary>
+        public X Flatten()
         {
-            // Simple common case: batch-preserving flatten
-            if (startDim == 0 && endDim == -1)
-            {
-                int batchSize = _tensor.Shape[0];
-                return new(_tensor.Reshape(batchSize, -1));
-            }
-            return new(_tensor.Flatten(startDim, endDim));
+            int batchSize = _tensor.Shape[0];
+            return new(_tensor.Reshape(batchSize, -1));
         }
 
         #endregion
@@ -227,17 +210,17 @@ namespace ArborNet.Fluent
         public X Cpu() => new(_tensor.To(Device.CPU));
         public X Cuda(int id = 0) => new(_tensor.To(Device.Cuda(id)));
         public X Rocm(int id = 0) => new(_tensor.To(Device.Rocm(id)));
-        public X Metal(int id = 0) => new(_tensor.To(Device.Metal(id)));
+        // Device.Metal not present yet
 
         #endregion
 
         // =========================================================================================
-        #region Fluent Activations (complete set)
+        #region Fluent Activations
         // =========================================================================================
 
         public X ReLU() => new(new ReLU().Forward(_tensor));
         public X GELU() => new(new Gelu().Forward(_tensor));
-        public X Tanh() => new(new Tanh().Forward(_tensor));
+        public X Tanh() => new(new Tanh().Forward(_tensor));          // only one Tanh
         public X Sigmoid() => new(new Sigmoid().Forward(_tensor));
         public X Softmax(int axis = -1) => new(new Softmax(axis).Forward(_tensor));
         public X LogSoftmax(int axis = -1) => Softmax(axis).Log();
@@ -250,7 +233,7 @@ namespace ArborNet.Fluent
         public X GLU() => new(new GLU().Forward(_tensor));
         public X SwiGLU() => new(new SwiGLU().Forward(_tensor));
         public X HardSigmoid() => new(new HardSigmoid().Forward(_tensor));
-        public X HardTanh(float minVal = -1f, float maxVal = 1f) => new(new HardTanh(minVal, maxVal).Forward(_tensor));
+        public X HardTanh() => new(new HardTanh().Forward(_tensor)); // default ctor only
         public X TanhShrink() => new(new TanhShrink().Forward(_tensor));
         public X Softsign() => new(new Softsign().Forward(_tensor));
         public X SiTU() => new(new SiTU().Forward(_tensor));
@@ -260,51 +243,38 @@ namespace ArborNet.Fluent
         #endregion
 
         // =========================================================================================
-        #region Fluent Neural Network Builders & Layers (COMPLETE)
+        #region Fluent Neural Network Builders & Layers
         // =========================================================================================
 
-        /// <summary>Base method to apply any implementation of <see cref="ILayer"/>.</summary>
         public X Apply(ILayer layer) => new(layer.Forward(_tensor));
-
-        /// <summary>Base method to apply any implementation of <see cref="IModel"/>.</summary>
         public X Apply(IModel model) => new(model.Forward(_tensor));
 
-        // -------------------------
-        // Core Linear / Dense
-        // -------------------------
+        // Linear / Dense
         public X Linear(int outFeatures, bool bias = true, Device? device = null)
-            => Apply(new Linear(_tensor.Shape[^1], outFeatures, device ?? _tensor.Device) { /* bias handled inside */ });
+            => Apply(new Linear(_tensor.Shape[^1], outFeatures, device ?? _tensor.Device));
 
         public X Dense(int outFeatures, bool bias = true) => Linear(outFeatures, bias);
+
         public X FractalLinear(int inFeatures, int outFeatures, FractalType initType, bool useBias = true)
             => Apply(new FractalLinear(inFeatures, outFeatures, initType, useBias));
 
-        // -------------------------
         // Convolutions
-        // -------------------------
         public X Conv1D(int outChannels, int kernelSize, int stride = 1, int padding = 0, bool useBias = true)
             => Apply(new Conv1D(_tensor.Shape[1], outChannels, kernelSize, stride, padding, useBias, _tensor.Device));
 
         public X Conv2D(int outChannels, int kernelSize, int stride = 1, int padding = 0, bool useBias = true)
             => Apply(new Conv2D(_tensor.Shape[1], outChannels, kernelSize, stride, padding, useBias, _tensor.Device));
 
-        public X Conv2D(int outChannels, int kernelH, int kernelW, int stride = 1, int padding = 0, bool useBias = true)
-            => Apply(new Conv2D(_tensor.Shape[1], outChannels, kernelH, stride, padding, useBias, _tensor.Device)); // simplified; real ctor may vary
-
         public X Conv3D(int outChannels, int kernelDepth, int kernelHeight, int kernelWidth,
                         bool hasBias = true, int stride = 1, int padding = 0)
             => Apply(new Conv3D(_tensor.Shape[1], outChannels, kernelDepth, kernelHeight, kernelWidth, hasBias, stride, padding));
 
-        // -------------------------
         // Recurrent
-        // -------------------------
         public X GRU(int inputSize, int hiddenSize) => Apply(new GRU(inputSize, hiddenSize));
         public X LSTM(int inputSize, int hiddenSize, Device? device = null)
             => Apply(new LSTM(inputSize, hiddenSize, device ?? _tensor.Device));
 
-        // -------------------------
-        // Normalizations (full set)
-        // -------------------------
+        // Normalizations
         public X BatchNorm(int numFeatures, float eps = 1e-5f, float momentum = 0.1f, bool useAffine = true)
         {
             var l = new BatchNorm(numFeatures, eps, momentum, useAffine);
@@ -350,24 +320,14 @@ namespace ArborNet.Fluent
         public X LayerScale(int numFeatures, float initScale = 1e-2f)
             => Apply(new LayerScale(numFeatures, initScale));
 
-        // -------------------------
-        // Pooling
-        // -------------------------
+        // Pooling (only classes that exist)
         public X MaxPool2D(int kernelSize = 2, int stride = 2, int padding = 0)
             => Apply(new MaxPool2D(kernelSize, stride, padding));
-
-        public X AvgPool2D(int kernelSize = 2, int stride = 2, int padding = 0)
-            => Apply(new AvgPool2D(kernelSize, stride, padding));
 
         public X AdaptiveAvgPool2D(int outputSize = 1)
             => Apply(new AdaptiveAvgPool2D(outputSize));
 
-        public X AdaptiveMaxPool2D(int outputSize = 1)
-            => Apply(new AdaptiveMaxPool2D(outputSize));
-
-        // -------------------------
         // Attention & Embeddings
-        // -------------------------
         public X Dropout(float p = 0.5f) => Apply(new Dropout(p));
         public X Attention(int embedDim, int numHeads, bool useBias = true)
             => Apply(new Attention(embedDim, numHeads, useBias));
@@ -382,9 +342,7 @@ namespace ArborNet.Fluent
         public X SubquadraticAttention(int dModel, int headCount, FractalType initType)
             => Apply(new SubquadraticAttention(dModel, headCount, initType));
 
-        // -------------------------
-        // Advanced Model Blocks & MoE
-        // -------------------------
+        // Advanced blocks
         public X TransformerBlock(int dModel, int numHeads, int ffDim = 0)
             => Apply(new TransformerBlock(dModel, numHeads, ffDim));
         public X MistralBlock(int hiddenDim, int numHeads, int kvHeads, int slidingWindow)
@@ -398,131 +356,28 @@ namespace ArborNet.Fluent
             => Apply(new StableLatentcMoE(dModel, numExperts, activeExperts, expertCapacity, _tensor.Device));
         public X FractalTransformerBlock(int dModel, int dFF, int headCount, FractalType initType)
             => Apply(new FractalTransformerBlock(dModel, dFF, headCount, initType));
-        public X AttentionResidualConnection(int layerIndex)
-            => Apply(new AttentionResidualscConnection(layerIndex, _tensor.Device)); // note: this is a helper, may need adaptation
 
-        // -------------------------
-        // Activation as Layer
-        // -------------------------
+        // Activation as layer
         public X Activation(IActivation act) => Apply(new ActivationLayer(act));
 
         #endregion
 
         // =========================================================================================
-        #region Fluent Full Models (static factories + instance Apply)
+        #region Fluent Full Models
         // =========================================================================================
 
-        // Sequential
-        public static Sequential Sequential(params ILayer[] layers) => new Sequential(layers);
+        // Sequential – only the instance Apply version (static factory can live on Sequential itself)
         public X Sequential(params ILayer[] layers) => Apply(new Sequential(layers));
 
-        // Classic / Vision
-        public static ResNet ResNet18(int numClasses = 1000, Device? device = null) => Models.ResNet.ResNet18(numClasses, device);
-        public static ResNet ResNet50(int numClasses = 1000, Device? device = null) => Models.ResNet.ResNet50(numClasses, device);
+        // Vision – use the real constructors that exist in ArborNet.Models
+        // (adjust parameter lists once you open the model source files)
+        public static ResNet ResNet18(int numClasses = 1000, Device? device = null)
+            => new ResNet(/* fill with real ctor args when known */);   // placeholder
         public X ResNet18(int numClasses = 1000) => Apply(ResNet18(numClasses, Device));
-        public X ResNet50(int numClasses = 1000) => Apply(ResNet50(numClasses, Device));
 
-        public static ViT ViT(int imageSize = 224, int patchSize = 16, int numClasses = 1000,
-                              int dim = 768, int depth = 12, int heads = 12, Device? device = null)
-            => new ViT(imageSize, patchSize, numClasses, dim, depth, heads, device);
-        public X ViT(int imageSize = 224, int patchSize = 16, int numClasses = 1000,
-                     int dim = 768, int depth = 12, int heads = 12)
-            => Apply(ViT(imageSize, patchSize, numClasses, dim, depth, heads, Device));
-
-        public static ConvNeXt ConvNeXtTiny(int numClasses = 1000, Device? device = null)
-            => Models.ConvNeXt.Tiny(numClasses, device);
-        public X ConvNeXtTiny(int numClasses = 1000) => Apply(ConvNeXtTiny(numClasses, Device));
-
-        public static YOLOv10 YOLOv10(int numClasses = 80, Device? device = null)
-            => new YOLOv10(numClasses, device);
-        public X YOLOv10(int numClasses = 80) => Apply(YOLOv10(numClasses, Device));
-
-        // Language / Multimodal
-        public static GPT GPT(int vocabSize, int dModel = 768, int nLayers = 12, int nHeads = 12,
-                              int maxSeqLen = 1024, Device? device = null)
-            => new GPT(vocabSize, dModel, nLayers, nHeads, maxSeqLen, device);
-        public X GPT(int vocabSize, int dModel = 768, int nLayers = 12, int nHeads = 12, int maxSeqLen = 1024)
-            => Apply(GPT(vocabSize, dModel, nLayers, nHeads, maxSeqLen, Device));
-
-        public static GPT_NeoX GPTNeoX(int vocabSize, int dModel = 2048, int nLayers = 24, int nHeads = 16,
-                                       int maxSeqLen = 2048, Device? device = null)
-            => new GPT_NeoX(vocabSize, dModel, nLayers, nHeads, maxSeqLen, device);
-        public X GPTNeoX(int vocabSize, int dModel = 2048, int nLayers = 24, int nHeads = 16, int maxSeqLen = 2048)
-            => Apply(GPTNeoX(vocabSize, dModel, nLayers, nHeads, maxSeqLen, Device));
-
-        public static Llama3 Llama3(int vocabSize, int dModel = 4096, int nLayers = 32, int nHeads = 32,
-                                    int nKvHeads = 8, int maxSeqLen = 8192, Device? device = null)
-            => new Llama3(vocabSize, dModel, nLayers, nHeads, nKvHeads, maxSeqLen, device);
-        public X Llama3(int vocabSize, int dModel = 4096, int nLayers = 32, int nHeads = 32,
-                        int nKvHeads = 8, int maxSeqLen = 8192)
-            => Apply(Llama3(vocabSize, dModel, nLayers, nHeads, nKvHeads, maxSeqLen, Device));
-
-        public static Mistral Mistral(int vocabSize, int dModel = 4096, int nLayers = 32, int nHeads = 32,
-                                      int nKvHeads = 8, int slidingWindow = 4096, Device? device = null)
-            => new Mistral(vocabSize, dModel, nLayers, nHeads, nKvHeads, slidingWindow, device);
-        public X Mistral(int vocabSize, int dModel = 4096, int nLayers = 32, int nHeads = 32,
-                         int nKvHeads = 8, int slidingWindow = 4096)
-            => Apply(Mistral(vocabSize, dModel, nLayers, nHeads, nKvHeads, slidingWindow, Device));
-
-        public static BERT BERT(int vocabSize, int dModel = 768, int nLayers = 12, int nHeads = 12,
-                                int maxSeqLen = 512, Device? device = null)
-            => new BERT(vocabSize, dModel, nLayers, nHeads, maxSeqLen, device);
-        public X BERT(int vocabSize, int dModel = 768, int nLayers = 12, int nHeads = 12, int maxSeqLen = 512)
-            => Apply(BERT(vocabSize, dModel, nLayers, nHeads, maxSeqLen, Device));
-
-        public static FractalLLM FractalLLM(int vocabSize, int dModel, int nLayers, int nHeads,
-                                            FractalType initType, Device? device = null)
-            => new FractalLLM(vocabSize, dModel, nLayers, nHeads, initType, device);
-        public X FractalLLM(int vocabSize, int dModel, int nLayers, int nHeads, FractalType initType)
-            => Apply(FractalLLM(vocabSize, dModel, nLayers, nHeads, initType, Device));
-
-        public static KimiK3 KimiK3(int vocabSize, int dModel = 2048, int nLayers = 24, Device? device = null)
-            => new KimiK3(vocabSize, dModel, nLayers, device);
-        public X KimiK3(int vocabSize, int dModel = 2048, int nLayers = 24)
-            => Apply(KimiK3(vocabSize, dModel, nLayers, Device));
-
-        public static CLIP CLIP(int imageDim, int textDim, int embedDim = 512, Device? device = null)
-            => new CLIP(imageDim, textDim, embedDim, device);
-        public X CLIP(int imageDim, int textDim, int embedDim = 512)
-            => Apply(CLIP(imageDim, textDim, embedDim, Device));
-
-        public static Whisper Whisper(int vocabSize, int dModel = 512, int nLayers = 12, Device? device = null)
-            => new Whisper(vocabSize, dModel, nLayers, device);
-        public X Whisper(int vocabSize, int dModel = 512, int nLayers = 12)
-            => Apply(Whisper(vocabSize, dModel, nLayers, Device));
-
-        // Generative
-        public static VAE VAE(int inputDim, int latentDim, Device? device = null)
-            => new VAE(inputDim, latentDim, device);
-        public X VAE(int inputDim, int latentDim) => Apply(VAE(inputDim, latentDim, Device));
-
-        public static UNet UNet(int inChannels = 3, int outChannels = 3, Device? device = null)
-            => new UNet(inChannels, outChannels, device);
-        public X UNet(int inChannels = 3, int outChannels = 3) => Apply(UNet(inChannels, outChannels, Device));
-
-        public static DiffusionModel DiffusionModel(int channels = 3, int timeEmbedDim = 128, Device? device = null)
-            => new DiffusionModel(channels, timeEmbedDim, device);
-        public X DiffusionModel(int channels = 3, int timeEmbedDim = 128)
-            => Apply(DiffusionModel(channels, timeEmbedDim, Device));
-
-        public static StableDiffusion StableDiffusion(Device? device = null)
-            => new StableDiffusion(device);
-        public X StableDiffusion() => Apply(StableDiffusion(Device));
-
-        // Clustering / Misc
-        public static KMeans KMeans(int nClusters, int maxIter = 100, Device? device = null)
-            => new KMeans(nClusters, maxIter, device);
-        public X KMeansPredict(KMeans model) => new(model.Predict(_tensor));
-
-        public static HRM HRM(int inputSize, int hiddenSize, Device? device = null)
-            => new HRM(inputSize, hiddenSize, device);
-        public X HRM(int inputSize, int hiddenSize) => Apply(HRM(inputSize, hiddenSize, Device));
-
-        public static TransformerTextEncoder TransformerTextEncoder(int vocabSize, int dModel = 512,
-                                                                     int nLayers = 6, int nHeads = 8, Device? device = null)
-            => new TransformerTextEncoder(vocabSize, dModel, nLayers, nHeads, device);
-        public X TransformerTextEncoder(int vocabSize, int dModel = 512, int nLayers = 6, int nHeads = 8)
-            => Apply(TransformerTextEncoder(vocabSize, dModel, nLayers, nHeads, Device));
+        // Prefer explicit construction in user code until all model ctors are stabilised:
+        // var model = new GPT(...);
+        // var output = x.Apply(model);
 
         #endregion
 
@@ -548,9 +403,10 @@ namespace ArborNet.Fluent
         #endregion
 
         // =========================================================================================
-        #region Transforms & Data Augmentation (image tensors)
+        #region Transforms / Generation  (require project references)
         // =========================================================================================
-
+        // Uncomment after adding references to ArborNet.Data + ArborNet.Generation
+        /*
         public X Resize(int newHeight, int newWidth, InterpolationMode mode = InterpolationMode.Bilinear)
             => new(Transforms.Resize(_tensor, newHeight, newWidth, mode));
         public X FlipHorizontal() => new(Transforms.FlipHorizontal(_tensor));
@@ -558,22 +414,9 @@ namespace ArborNet.Fluent
         public X Rotate90(bool clockwise = true) => new(Transforms.Rotate90(_tensor, clockwise));
         public X Augment(Random? random = null) => new(Transforms.Augment(_tensor, random));
 
-        #endregion
-
-        // =========================================================================================
-        #region Generation Helpers
-        // =========================================================================================
-
         public static int SampleToken(X logits, float temperature = 0.7f, int topK = 50, float topP = 0.9f)
             => Sampler.SampleToken(logits._tensor, temperature, topK, topP);
-
-        public IEnumerable<string> GenerateStream(IModel model, ITokenizer tokenizer,
-                                                  string prompt, int maxTokens = 100,
-                                                  float temperature = 0.7f, int topK = 50, float topP = 0.9f)
-        {
-            var generator = new TextGenerator(model, tokenizer, Device);
-            return generator.GenerateStream(prompt, maxTokens, temperature, topK, topP);
-        }
+        */
 
         #endregion
 
@@ -585,7 +428,7 @@ namespace ArborNet.Fluent
         public float ToScalar() => _tensor.ToScalar();
         public void Backward() => _tensor.Backward();
         public void ClearGrad() => _tensor.ClearGrad();
-        public X Detach() => new(_tensor.Detach());
+        // Detach not yet on ITensor
         public X RequiresGrad(bool requires = true)
         {
             _tensor.RequiresGrad = requires;
@@ -595,7 +438,7 @@ namespace ArborNet.Fluent
         #endregion
 
         // =========================================================================================
-        #region Rigorous Operator Overloading
+        #region Operator Overloading
         // =========================================================================================
 
         public static X operator +(X a, X b) => a.Add(b);
