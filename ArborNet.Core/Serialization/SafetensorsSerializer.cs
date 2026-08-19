@@ -71,6 +71,7 @@ namespace ArborNet.Core.Serialization
 
             public List<long> data_offsets { get; set; } = new();
         }
+
         /// <summary>
         /// Saves a collection of named tensors to a file in the Safetensors format.
         /// </summary>
@@ -85,7 +86,6 @@ namespace ArborNet.Core.Serialization
         /// <exception cref="UnauthorizedAccessException">Thrown if the caller does not have the required permissions to write to the specified path.</exception>
         /// <exception cref="DirectoryNotFoundException">Thrown if the directory specified in <paramref name="filePath"/> does not exist.</exception>
         /// <exception cref="PathTooLongException">Thrown when the specified path exceeds the system-defined maximum length.</exception>
-
         public static void Save(string filePath, Dictionary<string, ITensor> tensors)
         {
             if (string.IsNullOrEmpty(filePath)) throw new ArgumentNullException(nameof(filePath));
@@ -95,6 +95,7 @@ namespace ArborNet.Core.Serialization
 
             Save(fs, tensors);
         }
+
         /// <summary>
         /// Saves a collection of named tensors to the specified stream in the Safetensors format.
         /// </summary>
@@ -119,7 +120,6 @@ namespace ArborNet.Core.Serialization
         /// <exception cref="NotSupportedException">Thrown if the specified <paramref name="stream"/> does not support write operations.</exception>
         /// <exception cref="ObjectDisposedException">Thrown if the <paramref name="stream"/> is closed or disposed before or during serialization.</exception>
         /// <exception cref="IOException">Thrown if an I/O error occurs while writing data to the stream.</exception>
-
         public static void Save(Stream stream, Dictionary<string, ITensor> tensors)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
@@ -149,6 +149,17 @@ namespace ArborNet.Core.Serialization
 
             string jsonHeader = JsonSerializer.Serialize(headerDict);
             byte[] headerBytes = Encoding.UTF8.GetBytes(jsonHeader);
+
+            // FIX: Pad header to ensure 8-byte alignment for the binary payload
+            int padding = 8 - (headerBytes.Length % 8);
+            if (padding < 8)
+            {
+                byte[] paddedHeader = new byte[headerBytes.Length + padding];
+                Array.Copy(headerBytes, paddedHeader, headerBytes.Length);
+                for (int i = 0; i < padding; i++) paddedHeader[headerBytes.Length + i] = 0x20; // 0x20 is ASCII Space
+                headerBytes = paddedHeader;
+            }
+
             ulong headerLength = (ulong)headerBytes.Length;
 
             byte[] headerLengthBytes = BitConverter.GetBytes(headerLength);
@@ -168,6 +179,7 @@ namespace ArborNet.Core.Serialization
                 stream.Write(byteSpan);
             }
         }
+        
         /// <summary>
         /// Loads a collection of named tensors from the specified stream in Safetensors format.
         /// </summary>
@@ -193,7 +205,6 @@ namespace ArborNet.Core.Serialization
         /// </exception>
         /// <exception cref="ObjectDisposedException">Thrown if the <paramref name="stream"/> is closed or disposed before or during deserialization.</exception>
         /// <exception cref="IOException">Thrown if an I/O error occurs while reading or seeking within the stream.</exception>
-
         public static Dictionary<string, ITensor> Load(Stream stream, Device? device = null)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
@@ -203,10 +214,7 @@ namespace ArborNet.Core.Serialization
             int read = stream.Read(headerLengthBytes, 0, 8);
             if (read != 8) throw new InvalidDataException("Incomplete Safetensors file header size.");
 
-            if (!BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(headerLengthBytes);
-            }
+            if (!BitConverter.IsLittleEndian) Array.Reverse(headerLengthBytes);
             ulong headerLength = BitConverter.ToUInt64(headerLengthBytes, 0);
 
             byte[] headerBytes = new byte[headerLength];
@@ -220,50 +228,52 @@ namespace ArborNet.Core.Serialization
             var tensors = new Dictionary<string, ITensor>();
             long binaryStartOffset = stream.Position;
 
-            foreach (var kvp in headerDict)
+            // Optional: If stream is a FileStream, we can memory-map it for zero-allocation
+            if (stream is FileStream fs && device.IsCpu())
             {
-                string name = kvp.Key;
-                var meta = kvp.Value;
+                using var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(
+                    fs, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read, HandleInheritability.None, false);
 
-                if (meta.dtype != "F32")
-                    throw new NotSupportedException($"Only F32 dtype is currently supported, found: {meta.dtype}");
+                foreach (var kvp in headerDict)
+                {
+                    string name = kvp.Key;
+                    var meta = kvp.Value;
+                    long start = meta.data_offsets[0];
+                    long lengthInBytes = meta.data_offsets[1] - start;
+                    int numElements = (int)(lengthInBytes / sizeof(float));
 
-                long start = meta.data_offsets[0];
-                long end = meta.data_offsets[1];
-                long lengthInBytes = end - start;
-                int numElements = (int)(lengthInBytes / sizeof(float));
+                    using var accessor = mmf.CreateViewAccessor(binaryStartOffset + start, lengthInBytes, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read);
 
-                //stream.Seek(binaryStartOffset + start, SeekOrigin.Begin);
+                    float[] data = new float[numElements];
 
-                //// Zero-Allocation Reading: Direct Buffer-Casting
-                //float[] data = new float[numElements];
-                //Span<float> floatSpan = data;
-                //Span<byte> byteSpan = MemoryMarshal.AsBytes(floatSpan);
+                    // FIX: ReadArray safely handles the required page-alignment PointerOffset
+                    accessor.ReadArray(0, data, 0, numElements);
 
-                //int bytesRead = stream.Read(byteSpan);
-                //if (bytesRead != byteSpan.Length)
-                //    throw new InvalidDataException($"Incomplete binary payload read for tensor: {name}");
+                    tensors[name] = Tensor.FromArray(data, new TensorShape(meta.shape.ToArray()), device);
+                }
+            }
+            else
+            {
+                // Fallback for non-file streams or GPU target
+                foreach (var kvp in headerDict)
+                {
+                    var meta = kvp.Value;
+                    long start = meta.data_offsets[0];
+                    int numElements = (int)((meta.data_offsets[1] - start) / sizeof(float));
 
-                //var shape = new TensorShape(meta.shape.ToArray());
-                //tensors[name] = Tensor.FromArray(data, shape, device);
+                    stream.Seek(binaryStartOffset + start, SeekOrigin.Begin);
 
-                // A safer Implementation:
-                stream.Seek(binaryStartOffset + start, SeekOrigin.Begin);
+                    // FIX: Read directly into the array span to avoid double heap allocations
+                    float[] dataArr = new float[numElements];
+                    stream.ReadExactly(MemoryMarshal.AsBytes<float>(dataArr.AsSpan()));
 
-                // Zero-Allocation Reading: Direct Buffer-Casting
-                float[] data = new float[numElements];
-                Span<float> floatSpan = data;
-                Span<byte> byteSpan = MemoryMarshal.AsBytes(floatSpan);
-
-                // GUARANTEED reading of complete byte block sizes
-                stream.ReadExactly(byteSpan);
-
-                var shape = new TensorShape(meta.shape.ToArray());
-                tensors[name] = Tensor.FromArray(data, shape, device);
+                    tensors[kvp.Key] = Tensor.FromArray(dataArr, new TensorShape(meta.shape.ToArray()), device);
+                }
             }
 
             return tensors;
         }
+
         /// <summary>
         /// Loads a collection of named tensors from a Safetensors file.
         /// </summary>
@@ -281,7 +291,6 @@ namespace ArborNet.Core.Serialization
         /// <exception cref="UnauthorizedAccessException">Thrown if the caller does not have read permissions for the specified file.</exception>
         /// <exception cref="InvalidDataException">Thrown when the file header, JSON metadata, or binary payloads are malformed.</exception>
         /// <exception cref="NotSupportedException">Thrown when encountering an unsupported tensor data type.</exception>
-
         public static Dictionary<string, ITensor> Load(string filePath, Device? device = null)
         {
             if (string.IsNullOrEmpty(filePath)) throw new ArgumentNullException(nameof(filePath));

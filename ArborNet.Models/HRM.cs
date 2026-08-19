@@ -13,7 +13,7 @@ namespace ArborNet.Models
 
     using ArborNet.Activations;
     using ArborNet.Core.Devices;
-    using ArborNet.Core.Functional;
+    using ArborNet.Core.Initializers;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Models;
     using ArborNet.Core.Tensors;

@@ -75,6 +75,7 @@ namespace ArborNet.Layers
 
             Wq.RequiresGrad = Wk.RequiresGrad = Wv.RequiresGrad = Wo.RequiresGrad = true;
         }
+        
         /// <summary>
         /// Executes the forward pass of the Multi-Head Self-Attention mechanism.
         /// </summary>
@@ -91,7 +92,6 @@ namespace ArborNet.Layers
         /// <item><description>Applies the final linear projection <see cref="Wo"/>.</description></item>
         /// </list>
         /// </remarks>
-
         public override ITensor Forward(ITensor input)
         {
             var batch = input.Shape[0];
@@ -109,11 +109,11 @@ namespace ArborNet.Layers
             context = context.Transpose(new[] { 0, 2, 1, 3 }).Reshape(batch, seq, dModel);
             return context.MatMul(Wo);
         }
+        
         /// <summary>
         /// Retrieves the collection of all trainable weight parameters associated with this layer.
         /// </summary>
         /// <returns>An enumerable sequence of <see cref="ITensor"/> containing the weight matrices for the query, key, value, and output projections.</returns>
-
         public override IEnumerable<ITensor> Parameters()
         {
             yield return Wq; yield return Wk; yield return Wv; yield return Wo;

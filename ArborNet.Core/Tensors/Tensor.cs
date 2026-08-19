@@ -51,6 +51,9 @@ namespace ArborNet.Core.Tensors
 
     public sealed class Tensor : ITensor
     {
+
+        public uint Version => _backend.Version;
+
         internal readonly ITensor _backend;
         private readonly object _gradLock = new();
 
@@ -72,6 +75,20 @@ namespace ArborNet.Core.Tensors
         public ITensor? Grad { get => _backend.Grad; set => _backend.Grad = value; }
         public Func<ITensor, ITensor>? GradFn { get => _backend.GradFn; set => _backend.GradFn = value; }
         public float[] Data => _backend.ToArray();
+
+        public ITensor Cast(string dtype) => new Tensor(_backend.Cast(dtype));
+
+        public ITensor Squeeze(int? axis) => new Tensor(_backend.Squeeze(axis));
+
+        public ITensor Unsqueeze(int axis) => new Tensor(_backend.Unsqueeze(axis));
+
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            var (vals, idxs) = _backend.TopK(k, axis);
+            return (new Tensor(vals), new Tensor(idxs));
+        }
+
+        public string DType => "float32";   // or _backend.DType if you later make it per-backend
 
         public static ITensor Unwrap(ITensor t) => t is Tensor tensor ? tensor._backend : t;
 
@@ -251,5 +268,26 @@ namespace ArborNet.Core.Tensors
         public void ClearGrad() => _backend.ClearGrad();
         public ITensor LogicalNot() => new Tensor(_backend.LogicalNot());
         public ITensor Clip(float v1, float v2) => new Tensor(_backend.Clip(v1, v2));
+
+        public static ITensor Clip(ITensor tensor, float min, float max)
+        {
+            if (tensor == null) throw new ArgumentNullException(nameof(tensor));
+
+            return tensor.Clip(min, max);
+        }
+
+        public static void ClipGradients(IEnumerable<ITensor> parameters, float min, float max)
+        {
+            if (parameters == null) throw new ArgumentNullException(nameof(parameters));
+
+            foreach (var param in parameters)
+            {
+                // Only clip if the parameter actually has a gradient accumulated
+                if (param.Grad != null)
+                {
+                    param.Grad = param.Grad.Clip(min, max);
+                }
+            }
+        }
     }
 }

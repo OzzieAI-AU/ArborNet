@@ -44,44 +44,12 @@ namespace ArborNet.Activations
 
     public class Softmax : BaseActivation
     {
-        /// <summary>
-        /// The axis along which the softmax operation is computed.
-        /// </summary>
-        /// <remarks>
-        /// A negative value is interpreted as counting backwards from the last dimension.
-        /// </remarks>
         private readonly int axis;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Softmax"/> class.
-        /// </summary>
-        /// <param name="axis">The axis to compute the softmax over. 
-        /// Default is -1 (the last axis). Negative values are supported and resolved 
-        /// relative to the tensor rank during the forward pass.</param>
         public Softmax(int axis = -1)
         {
             this.axis = axis;
         }
-        /// <summary>
-        /// Executes the forward pass computation of the Softmax function on the provided input tensor.
-        /// </summary>
-        /// <param name="input">The input <see cref="ITensor"/> containing the unnormalized log probabilities (logits).</param>
-        /// <returns>A new <see cref="ITensor"/> containing the computed softmax probabilities, preserving the shape of the input.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <see langword="null"/>.</exception>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when the resolved <see cref="axis"/> is outside the valid bounds of the <paramref name="input"/> tensor's rank.</exception>
-        /// <remarks>
-        /// <para>
-        /// This method is numerically stabilized. If the input tensor has <see cref="ITensor.RequiresGrad"/> set to <see langword="true"/>,
-        /// an autograd backward gradient function (<c>GradFn</c>) is attached to the returned tensor.
-        /// </para>
-        /// <para>
-        /// The backward pass calculates the vector-Jacobian product (VJP) defined by:
-        /// <code>
-        /// dL/dx_i = p_i * (dL/dy_i - sum(dL/dy_j * p_j))
-        /// </code>
-        /// where <c>p</c> is the output (probabilities) of the forward pass, and <c>dL/dy</c> is the incoming gradient (<c>gradOutput</c>).
-        /// </para>
-        /// </remarks>
 
         public override ITensor Forward(ITensor input)
         {
@@ -92,21 +60,24 @@ namespace ArborNet.Activations
             if (ax < 0 || ax >= input.Shape.Rank)
                 throw new ArgumentOutOfRangeException(nameof(axis));
 
-            var device = input.Device;
-            var maxVal = input.Max(ax);
-            var shifted = input.Subtract(maxVal.ReshapeWithBroadcast(input.Shape, ax));
+            var maxVal = input.Max(ax, keepDims: true);
+            var shifted = input.Subtract(maxVal);
             var exp = shifted.Exp();
-            var sumExp = exp.Sum(ax);
-            var output = exp.Divide(sumExp.ReshapeWithBroadcast(input.Shape, ax));
+            var sumExp = exp.Sum(ax, keepDims: true);
+            var output = exp.Divide(sumExp);
 
             if (input.RequiresGrad)
             {
                 output.GradFn = gradOutput =>
                 {
                     var weighted = output.Multiply(gradOutput);
-                    var sumWeighted = weighted.Sum(ax);
-                    var scaled = sumWeighted.ReshapeWithBroadcast(output.Shape, ax);
-                    return output.Multiply(gradOutput.Subtract(scaled));
+                    var sumWeighted = weighted.Sum(ax, keepDims: true);
+                    var gradInput = output.Multiply(gradOutput.Subtract(sumWeighted));
+
+                    // FIX: Accumulate the gradient back to the input!
+                    input.AccumulateGrad(gradInput);
+
+                    return gradInput;
                 };
             }
 

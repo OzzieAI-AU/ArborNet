@@ -314,6 +314,20 @@ namespace ArborNet.Core.Native.PInvoke
         [DllImport(CustomKernel, CallingConvention = CallingConvention.Cdecl)]
         public static extern int InvokeHolonomicKernel(IntPtr inputs, IntPtr weights, IntPtr intWeights, IntPtr outputs, int inputSize, int neuronCount, int fractalDepth);
 
+        [DllImport(CustomKernel, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void NativeTopK(
+    IntPtr input,
+    IntPtr outValues,
+    IntPtr outIndices,
+    int outer, int dim, int inner, int k);
+
+        [DllImport(CustomKernel, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void NativeTopKScatterGrad(
+            IntPtr gradOut,
+            IntPtr indices,
+            IntPtr gradIn,
+            int outer, int dim, int inner, int k);
+
         // =// =================================================================================
         // CUDA WORKER ERROR CONTROLLER
         // =================================================================================

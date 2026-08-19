@@ -17,8 +17,9 @@ namespace ArborNet.Layers
     using ArborNet.Core.Devices;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Tensors;
-    using ArborNet.Core.Functional;
     using ArborNet.Core.Layers;
+    using ArborNet.Core.Initializers;
+
     /// <summary>
     /// Represents a fully connected (dense) linear layer in a neural network.
     /// Applies a linear transformation to the incoming data: <c>y = xW + b</c>.

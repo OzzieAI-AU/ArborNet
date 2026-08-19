@@ -14,7 +14,7 @@ namespace ArborNet.Layers
 
     using ArborNet.Core.Backends;
     using ArborNet.Core.Devices;
-    using ArborNet.Core.Functional;
+    using ArborNet.Core.Initializers;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Layers;
     using ArborNet.Core.Native.PInvoke;

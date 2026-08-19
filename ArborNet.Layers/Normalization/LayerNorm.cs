@@ -65,10 +65,24 @@ namespace ArborNet.Layers.Normalization
         /// <exception cref="ArgumentNullException">Thrown if the <paramref name="input"/> tensor is null.</exception>
         protected override ITensor Normalize(ITensor input)
         {
+            // 1. Compute mean
             var mean = input.Mean(-1, keepDims: true);
-            var var_ = input.Subtract(mean).Pow(2).Mean(-1, keepDims: true);
+
+            // 2. Center
+            var centered = input.Subtract(mean);
+
+            // 3. Variance with stronger protection
+            var var_ = centered.Pow(2).Mean(-1, keepDims: true);
+
+            // 4. Clamp variance so it can never be too small
+            //    This is the key change that stops the NaN
+            var_ = var_.Clip(1e-6f, float.MaxValue);   // or use Max(var_, 1e-6f) if Clip is not available
+
+            // 5. Standard deviation
             var std = var_.Add(Eps).Sqrt();
-            return input.Subtract(mean).Divide(std);
+
+            // 6. Normalize
+            return centered.Divide(std);
         }
 
         /// <summary>

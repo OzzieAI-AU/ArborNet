@@ -31,62 +31,21 @@ namespace ArborNet.Core.Autograd
 
     public class ComputeNode
     {
-        /// <summary>
-        /// The mathematical or structural operation associated with this computational node.
-        /// </summary>
         private IAutogradOperation _operation;
-
-        /// <summary>
-        /// The array of input tensors that were passed into the operation during the forward pass.
-        /// </summary>
         private ITensor[] _inputs;
-
-        /// <summary>
-        /// The cached output tensor resulting from the execution of the forward pass.
-        /// </summary>
+        private uint[] _inputVersions; // Store captured versions
         private ITensor _output;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ComputeNode"/> class, immediately executing 
-        /// the forward pass of the specified operation.
-        /// </summary>
-        /// <param name="operation">The autograd operation to execute as part of this node.</param>
-        /// <param name="inputs">The collection of input tensors to be supplied to the operation.</param>
-        /// <exception cref="NullReferenceException">
-        /// Thrown if <paramref name="operation"/> is <see langword="null"/>.
-        /// </exception>
         public ComputeNode(IAutogradOperation operation, params ITensor[] inputs)
         {
             _operation = operation;
             _inputs = inputs;
+            // Snapshot the version at computation time
+            _inputVersions = inputs.Select(x => x.Version).ToArray();
             _output = operation.Forward(inputs);
         }
-        /// <summary>
-        /// Gets the output tensor produced by the forward pass of this computational node.
-        /// </summary>
-        /// <value>
-        /// An <see cref="ITensor"/> containing the evaluated result of the operation.
-        /// </value>
 
         public ITensor Output => _output;
-        /// <summary>
-        /// Executes the backward pass for this node, calculating the local gradients and 
-        /// propagating them back to the input tensors.
-        /// </summary>
-        /// <param name="gradOutput">The incoming gradient of the objective function (loss) with respect to the output of this node.</param>
-        /// <remarks>
-        /// This method retrieves the gradients of the operation with respect to each input via the 
-        /// <see cref="_operation"/>'s backward pass. For each input tensor, if the tensor tracks gradients 
-        /// (i.e., <see cref="ITensor.RequiresGrad"/> is <see langword="true"/>), the calculated gradient is either assigned 
-        /// directly (if no gradient has been accumulated yet) or accumulated (added) to the existing gradient 
-        /// to properly support node reuse and multiple paths in the computational graph.
-        /// </remarks>
-        /// <exception cref="NullReferenceException">
-        /// Thrown if <see cref="_operation"/> or <see cref="_inputs"/> contains elements that are null.
-        /// </exception>
-        /// <exception cref="IndexOutOfRangeException">
-        /// Thrown if the number of gradients returned by the operation's backward pass does not align with the number of input tensors.
-        /// </exception>
 
         public void Backward(ITensor gradOutput)
         {
@@ -96,14 +55,18 @@ namespace ArborNet.Core.Autograd
             {
                 if (_inputs[i].RequiresGrad)
                 {
+                    // Validate that the tensor wasn't mutated after graph creation
+                    if (_inputs[i].Version != _inputVersions[i])
+                    {
+                        throw new InvalidOperationException(
+                            "Tensor modified in-place after being used in a gradient computation. " +
+                            "This invalidates the autograd graph.");
+                    }
+
                     if (_inputs[i].Grad == null)
-                    {
                         _inputs[i].Grad = grad;
-                    }
                     else
-                    {
                         _inputs[i].Grad = _inputs[i].Grad.Add(grad);
-                    }
                 }
                 i++;
             }

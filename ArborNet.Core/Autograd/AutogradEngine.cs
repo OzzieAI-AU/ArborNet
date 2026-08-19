@@ -57,17 +57,24 @@ namespace ArborNet.Core.Autograd
         /// from all its consumers before its own gradient function (<see cref="ITensor.GradFn"/>) is invoked.
         /// </para>
         /// </remarks>
+        /// <summary>
+        /// Performs an iterative topological sort on the computation graph starting from the specified root tensor.
+        /// Safe from StackOverflowExceptions on extremely deep computation graphs.
+        /// </summary>
         public static List<ITensor> TopologicalSort(ITensor root)
         {
             var sorted = new List<ITensor>();
             var visited = new HashSet<ITensor>();
+            var stack = new Stack<(ITensor Node, bool IsExpanded)>();
 
-            void Visit(ITensor node)
+            if (root != null) stack.Push((root, false));
+
+            while (stack.Count > 0)
             {
-                if (node == null) return;
+                var (current, isExpanded) = stack.Pop();
 
                 // Resolve wrappers to the core underlying backend node
-                ITensor underlying = node;
+                ITensor underlying = current;
                 while (true)
                 {
                     if (underlying is Tensor t) { underlying = t._backend; continue; }
@@ -75,24 +82,34 @@ namespace ArborNet.Core.Autograd
                     break;
                 }
 
-                if (visited.Contains(underlying)) return;
-                visited.Add(underlying);
-
-                if (underlying.Inputs != null)
+                if (isExpanded)
                 {
-                    foreach (var input in underlying.Inputs)
+                    sorted.Add(underlying);
+                }
+                else if (!visited.Contains(underlying))
+                {
+                    visited.Add(underlying);
+
+                    // Push back as expanded so it gets added to 'sorted' after its children are processed
+                    stack.Push((underlying, true));
+
+                    if (underlying.Inputs != null)
                     {
-                        Visit(input);
+                        foreach (var input in underlying.Inputs)
+                        {
+                            if (input != null && !visited.Contains(input))
+                            {
+                                stack.Push((input, false));
+                            }
+                        }
                     }
                 }
-
-                sorted.Add(underlying);
             }
 
-            Visit(root);
             sorted.Reverse(); // Outputs sorted from loss back to leaf inputs
             return sorted;
         }
+
         /// <summary>
         /// Executes the backward pass of the autograd system, computing gradients of all reachable nodes in the
         /// computation graph with respect to the specified root tensor.
@@ -117,7 +134,6 @@ namespace ArborNet.Core.Autograd
         /// This matches standard backpropagation behavior where <c>dLoss/dLoss = 1</c>.
         /// </para>
         /// </remarks>
-
         public static void Backward(ITensor root, ITensor? initialGradient = null)
         {
             if (root == null) throw new ArgumentNullException(nameof(root));

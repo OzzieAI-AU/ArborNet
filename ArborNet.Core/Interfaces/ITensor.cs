@@ -25,6 +25,13 @@ namespace ArborNet.Core.Interfaces
     /// </summary>
     public interface ITensor
     {
+
+        /// <summary>
+        /// Gets the version counter for the tensor, incremented upon every in-place mutation.
+        /// Used by the autograd engine to detect invalid graph state modifications.
+        /// </summary>
+        uint Version { get; }
+
         /// <summary>
         /// Gets the shape (dimensions) of the tensor.
         /// </summary>
@@ -626,5 +633,35 @@ namespace ArborNet.Core.Interfaces
         /// <returns>A new tensor with elements clipped to the range [v1, v2].</returns>
 
         ITensor Clip(float v1, float v2);
+
+        /// <summary>
+        /// Inserts a dimension of size 1 at the specified axis.
+        /// </summary>
+        ITensor Unsqueeze(int axis);
+
+        /// <summary>
+        /// Returns the top-k values and their indices along the given axis.
+        /// </summary>
+        /// <param name="k">Number of largest elements to return.</param>
+        /// <param name="axis">Axis along which to find the top-k (default = last axis).</param>
+        /// <returns>A tuple of (values, indices) tensors.</returns>
+        (ITensor values, ITensor indices) TopK(int k, int axis = -1);
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="v"></param>
+        /// <returns></returns>
+        ITensor Squeeze(int? v);
+
+        /// <summary>
+        /// Casts the tensor to the requested data type (currently only float32 is supported).
+        /// </summary>
+        ITensor Cast(string dtype);
+
+        /// <summary>
+        /// Gets the data type of the tensor elements (currently always single-precision float).
+        /// </summary>
+        string DType { get; }
     }
 }

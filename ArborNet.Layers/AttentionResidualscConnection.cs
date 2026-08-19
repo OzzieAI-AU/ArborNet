@@ -22,12 +22,12 @@ namespace ArborNet.Layers
     #endregion
 
 
-    public sealed class AttentionResidualsConnection
+    public sealed class AttentionResidualscConnection
     {
         private readonly int _layerIndex;
         private readonly ITensor _routingWeights;
 
-        public AttentionResidualsConnection(int layerIndex, Device device)
+        public AttentionResidualscConnection(int layerIndex, Device device)
         {
             _layerIndex = layerIndex;
             _routingWeights = Tensor.Ones(new TensorShape(layerIndex + 1), device);
@@ -37,19 +37,20 @@ namespace ArborNet.Layers
         public ITensor Route(List<ITensor> history, ITensor currentOutput)
         {
             var device = currentOutput.Device;
-            var accumulated = Tensor.Zeros(currentOutput.Shape, device);
 
-            float[] weights = _routingWeights.ToArray();
-            float sumExp = weights.Select(MathF.Exp).Sum() + 1e-10f;
+            // Native tensor operation creates a valid autograd backwards link
+            var probs = _routingWeights.Softmax(-1);
+
+            var accumulated = Tensor.Zeros(currentOutput.Shape, device);
 
             for (int i = 0; i < history.Count; i++)
             {
-                float normalizedWeight = MathF.Exp(weights[i]) / sumExp;
-                accumulated = accumulated.Add(history[i].Multiply(normalizedWeight));
+                var prob = probs.Slice((i, i + 1, 1)).Reshape(1, 1, 1).BroadcastTo(accumulated.Shape);
+                accumulated = accumulated.Add(history[i].Multiply(prob));
             }
 
-            float currentNormalizedWeight = MathF.Exp(weights[_layerIndex]) / sumExp;
-            accumulated = accumulated.Add(currentOutput.Multiply(currentNormalizedWeight));
+            var currentProb = probs.Slice((_layerIndex, _layerIndex + 1, 1)).Reshape(1, 1, 1).BroadcastTo(accumulated.Shape);
+            accumulated = accumulated.Add(currentOutput.Multiply(currentProb));
 
             return accumulated;
         }

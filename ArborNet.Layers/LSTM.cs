@@ -18,8 +18,9 @@ namespace ArborNet.Layers
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Tensors;
     using ArborNet.Activations;
-    using ArborNet.Core.Functional;
     using ArborNet.Core.Layers;
+    using ArborNet.Core.Initializers;
+
     /// <summary>
     /// Represents a Long Short-Term Memory (LSTM) recurrent neural network layer.
     /// This layer maintains and updates a cell state and hidden state over sequential inputs,

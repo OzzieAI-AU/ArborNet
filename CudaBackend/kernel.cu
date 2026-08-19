@@ -1356,3 +1356,110 @@ EXPORT int InvokeHolonomicKernel(const ComplexDouble* inputs, const ComplexDoubl
     holonomic_kernel << <gs, bs >> > (inputs, weights, intWeights, outputs, inputSize, neuronCount, fractalDepth);
     return 0;
 }
+
+// =================================================================================
+// NATIVE TOP-K + SCATTER GRADIENT  (zero host traffic)
+// =================================================================================
+
+__global__ void topk_kernel(
+    const float* __restrict__ input,
+    float* __restrict__ outValues,
+    float* __restrict__ outIndices,
+    int outer, int dim, int inner, int k)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = outer * inner;
+    if (idx >= total) return;
+
+    int o = idx / inner;
+    int i = idx % inner;
+
+    const float* slice = input + (o * dim * inner + i);
+
+    for (int r = 0; r < k; ++r)
+    {
+        float bestVal = -FLT_MAX;
+        int bestIdx = 0;
+
+        for (int d = 0; d < dim; ++d)
+        {
+            float val = slice[d * inner];
+
+            bool alreadyTaken = false;
+            for (int prev = 0; prev < r; ++prev)
+            {
+                int prevOutIdx = o * k * inner + prev * inner + i;
+                if ((int)outIndices[prevOutIdx] == d)
+                {
+                    alreadyTaken = true;
+                    break;
+                }
+            }
+            if (alreadyTaken) continue;
+
+            if (val > bestVal)
+            {
+                bestVal = val;
+                bestIdx = d;
+            }
+        }
+
+        int outIdx = o * k * inner + r * inner + i;
+        outValues[outIdx] = bestVal;
+        outIndices[outIdx] = (float)bestIdx;
+    }
+}
+
+__global__ void topk_scatter_grad_kernel(
+    const float* __restrict__ gradOut,
+    const float* __restrict__ indices,
+    float* __restrict__ gradIn,
+    int outer, int dim, int inner, int k)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = outer * inner * k;
+    if (idx >= total) return;
+
+    int o = idx / (k * inner);
+    int rem = idx % (k * inner);
+    int r = rem / inner;
+    int i = rem % inner;
+
+    int origIdx = (int)indices[o * k * inner + r * inner + i];
+    int inIdx = o * dim * inner + origIdx * inner + i;
+
+    atomicAdd(&gradIn[inIdx], gradOut[o * k * inner + r * inner + i]);
+}
+
+EXPORT void NativeTopK(
+    const float* input,
+    float* outValues,
+    float* outIndices,
+    int outer, int dim, int inner, int k)
+{
+    if (outer <= 0 || dim <= 0 || inner <= 0 || k <= 0) return;
+
+    int total = outer * inner;
+    int bs, gs;
+    get_launch_config(total, &bs, &gs);
+
+    // Mark indices invalid so the "alreadyTaken" check works cleanly
+    cudaMemset(outIndices, 0xFF, (size_t)outer * k * inner * sizeof(float));
+
+    topk_kernel << <gs, bs >> > (input, outValues, outIndices, outer, dim, inner, k);
+}
+
+EXPORT void NativeTopKScatterGrad(
+    const float* gradOut,
+    const float* indices,
+    float* gradIn,
+    int outer, int dim, int inner, int k)
+{
+    if (outer <= 0 || dim <= 0 || inner <= 0 || k <= 0) return;
+
+    int total = outer * inner * k;
+    int bs, gs;
+    get_launch_config(total, &bs, &gs);
+
+    topk_scatter_grad_kernel << <gs, bs >> > (gradOut, indices, gradIn, outer, dim, inner, k);
+}

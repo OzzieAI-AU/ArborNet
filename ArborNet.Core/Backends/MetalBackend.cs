@@ -19,13 +19,14 @@ namespace ArborNet.Core.Backends
     using System.Collections.Generic;
     using System.Runtime.InteropServices;
     using System.Threading.Tasks;
+    
+    
+    
     /// <summary>
     /// Represents a high-performance Apple Silicon Metal/MPS-accelerated backend.
     /// Provides direct interaction with macOS Metal Performance Shaders using Obj-C runtime P/Invokes,
     /// with an automatic high-fidelity CPU SIMD fallback for cross-platform robustness.
     /// </summary>
-
-
     public sealed class MetalBackend : ITensor, IDisposable
     {
         private IntPtr _metalDevice;
@@ -103,6 +104,9 @@ namespace ArborNet.Core.Backends
         private static readonly bool IsMac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
         private static readonly bool IsMetalSupported;
 
+        private static readonly IntPtr SelContents = IsMetalSupported ? sel_registerName("contents") : IntPtr.Zero;
+        private static readonly IntPtr SelRelease = IsMetalSupported ? sel_registerName("release") : IntPtr.Zero;
+
         static MetalBackend()
         {
             if (IsMac)
@@ -122,6 +126,7 @@ namespace ArborNet.Core.Backends
                 IsMetalSupported = false;
             }
         }
+        
         /// <summary>
         /// Dynamically loads a shared library into the address space of the calling process.
         /// </summary>
@@ -162,6 +167,8 @@ namespace ArborNet.Core.Backends
         /// </summary>
         public float[] Data => ToArray();
 
+        public uint Version => throw new NotImplementedException();
+
         public MetalBackend(TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape ?? throw new ArgumentNullException(nameof(shape));
@@ -179,10 +186,10 @@ namespace ArborNet.Core.Backends
                 unsafe { GC.AddMemoryPressure((long)_bytes); }
             }
         }
+        
         /// <summary>
         /// Dynamically loads the Metal framework, registers system devices, and allocates a GPU buffer.
         /// </summary>
-
         private void InitializeMetalBuffer()
         {
             IntPtr metalLib = dlopen("/System/Library/Frameworks/Metal.framework/Metal", 1);
@@ -198,11 +205,11 @@ namespace ArborNet.Core.Backends
                 }
             }
         }
+        
         /// <summary>
         /// Adds a delta tensor to the existing accumulated gradient of this tensor.
         /// </summary>
         /// <param name="delta">The incoming gradient tensor to accumulate.</param>
-
         public void AccumulateGrad(ITensor delta)
         {
             if (delta == null) return;
@@ -222,7 +229,6 @@ namespace ArborNet.Core.Backends
         /// Copies the tensor data from native memory or Metal buffer to a managed float array.
         /// </summary>
         /// <returns>A flat float array representing the tensor's elements.</returns>
-
         public float[] ToArray()
         {
             float[] host = new float[_shape.TotalElements];
@@ -230,8 +236,7 @@ namespace ArborNet.Core.Backends
             {
                 if (IsMetalSupported && _metalBuffer != IntPtr.Zero)
                 {
-                    IntPtr contentsSel = sel_registerName("contents");
-                    IntPtr rawDataPtr = objc_msgSend(_metalBuffer, contentsSel);
+                    IntPtr rawDataPtr = objc_msgSend(_metalBuffer, SelContents);
                     Marshal.Copy(rawDataPtr, host, 0, _shape.TotalElements);
                 }
                 else
@@ -241,6 +246,7 @@ namespace ArborNet.Core.Backends
             }
             return host;
         }
+
         /// <summary>
         /// Extracts the single scalar value of a 1-element tensor.
         /// </summary>
@@ -253,23 +259,20 @@ namespace ArborNet.Core.Backends
                 throw new InvalidOperationException("Tensor must be a scalar.");
             return ToArray()[0];
         }
+        
         /// <summary>
         /// Overwrites the contents of the internal buffer with the specified float array.
         /// </summary>
         /// <param name="floats">The source float array.</param>
         /// <exception cref="ArgumentException">Thrown when the length of <paramref name="floats"/> does not match the tensor shape total elements.</exception>
-
         public void SetData(float[] floats)
         {
-            if (floats.Length != _shape.TotalElements)
-                throw new ArgumentException("Data volume mismatch.");
-
+            if (floats.Length != _shape.TotalElements) throw new ArgumentException("Data volume mismatch.");
             lock (_lock)
             {
                 if (IsMetalSupported && _metalBuffer != IntPtr.Zero)
                 {
-                    IntPtr contentsSel = sel_registerName("contents");
-                    IntPtr rawDataPtr = objc_msgSend(_metalBuffer, contentsSel);
+                    IntPtr rawDataPtr = objc_msgSend(_metalBuffer, SelContents);
                     Marshal.Copy(floats, 0, rawDataPtr, floats.Length);
                 }
                 else
@@ -278,23 +281,23 @@ namespace ArborNet.Core.Backends
                 }
             }
         }
+
         /// <summary>
         /// Creates a deep copy of the tensor, preserving shape, device target, autograd configuration, and values.
         /// </summary>
         /// <returns>A clone of the current tensor.</returns>
-
         public ITensor Clone()
         {
             var clone = new MetalBackend(_shape, _requiresGrad, _device);
             clone.SetData(ToArray());
             return clone;
         }
+        
         /// <summary>
         /// Moves the tensor data to the target device backend.
         /// </summary>
         /// <param name="device">The target execution device.</param>
         /// <returns>A new <see cref="ITensor"/> mapped to the specified device backend.</returns>
-
         public ITensor To(Device device)
         {
             if (device.Type == DeviceType.CPU)
@@ -303,6 +306,7 @@ namespace ArborNet.Core.Backends
             }
             return Clone();
         }
+        
         /// <summary>
         /// Returns a value indicating whether this backend executes on CPU.
         /// </summary>
@@ -1033,17 +1037,16 @@ namespace ArborNet.Core.Backends
         /// <param name="axis">The axis to gather from.</param>
         /// <param name="indices">Indices specifying the target positions to lookup.</param>
         /// <returns>A new gathered elements tensor.</returns>
-
         public ITensor Gather(int axis, ITensor indices)
         {
             var cpuEquivalent = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, _device);
             return cpuEquivalent.Gather(axis, indices).To(_device);
         }
+        
         /// <summary>
         /// Evaluates logical NOT operation element-wise (where 0.0 maps to 1.0, and any non-zero maps to 0.0).
         /// </summary>
         /// <returns>A binary boolean negation tensor.</returns>
-
         public ITensor LogicalNot()
         {
             var result = new MetalBackend(_shape, false, _device);
@@ -1053,13 +1056,13 @@ namespace ArborNet.Core.Backends
             result.SetData(res);
             return result;
         }
+
         /// <summary>
         /// Clamps all elements of the tensor within a range specified by two boundary float values.
         /// </summary>
         /// <param name="v1">The minimum bounding threshold.</param>
         /// <param name="v2">The maximum bounding threshold.</param>
         /// <returns>A clamped elements value tensor.</returns>
-
         public ITensor Clip(float v1, float v2)
         {
             var result = new MetalBackend(_shape, false, _device);
@@ -1069,44 +1072,98 @@ namespace ArborNet.Core.Backends
             result.SetData(res);
             return result;
         }
+
+        public string DType => "float32";
+
+        public ITensor Cast(string dtype)
+        {
+            if (dtype != "float32" && dtype != "float" && dtype != "f32")
+                throw new NotSupportedException($"Only float32 is currently supported. Requested: {dtype}");
+            return this; // already float32, zero-copy
+        }
+
+        // =================================================================================
+        // SQUEEZE (pure view – zero copy)  – FIXED
+        // =================================================================================
+        public ITensor Squeeze(int? axis = null)
+        {
+            if (axis == null)
+            {
+                var newDims = _shape.Dimensions.Where(d => d != 1).ToArray();
+                if (newDims.Length == 0)
+                    newDims = new[] { 1 };
+                return Reshape(newDims);
+            }
+
+            int a = axis.Value < 0 ? _shape.Rank + axis.Value : axis.Value;
+            if (a < 0 || a >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            if (_shape.Dimensions[a] != 1)
+                throw new InvalidOperationException($"Cannot squeeze axis {a} of size {_shape.Dimensions[a]}.");
+
+            var dims = _shape.Dimensions.ToList();
+            dims.RemoveAt(a);
+            if (dims.Count == 0)
+                dims.Add(1);
+
+            return Reshape(dims.ToArray()); // shares CudaAllocation – zero copy
+        }
+
+        public ITensor Unsqueeze(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? rank + axis + 1 : axis;
+            if (actualAxis < 0 || actualAxis > rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            var newDims = new int[rank + 1];
+            for (int i = 0, j = 0; i < newDims.Length; i++)
+                newDims[i] = (i == actualAxis) ? 1 : _shape.Dimensions[j++];
+
+            // Zero-copy reshape (shares the WebGPU buffer)
+            return Reshape(newDims);
+        }
+
+        // TopK can stay as the CPU fallback you already have
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            var cpu = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, Device.CPU);
+            var (v, i) = cpu.TopK(k, axis);
+            return (v.To(_device), i.To(_device));
+        }
+
         /// <summary>
         /// Disposes internal native pointers, GPU Metal buffers and releases references.
         /// </summary>
+        private void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing) { /* Clean up managed resources if any */ }
+
+                // Unmanaged cleanup (No locking here, finalizers run on a separate thread)
+                if (_metalBuffer != IntPtr.Zero)
+                {
+                    if (IsMetalSupported) objc_msgSend(_metalBuffer, SelRelease);
+                    else { Marshal.FreeHGlobal(_metalBuffer); }
+                    _metalBuffer = IntPtr.Zero;
+                }
+                if (_metalDevice != IntPtr.Zero && IsMetalSupported)
+                {
+                    objc_msgSend(_metalDevice, SelRelease);
+                    _metalDevice = IntPtr.Zero;
+                }
+                _disposed = true;
+            }
+        }
 
         public void Dispose()
         {
-            lock (_lock)
-            {
-                if (!_disposed)
-                {
-                    if (_metalBuffer != IntPtr.Zero)
-                    {
-                        if (IsMetalSupported)
-                        {
-                            IntPtr releaseSel = sel_registerName("release");
-                            objc_msgSend(_metalBuffer, releaseSel);
-                        }
-                        else
-                        {
-                            Marshal.FreeHGlobal(_metalBuffer);
-                            unsafe { GC.RemoveMemoryPressure((long)_bytes); }
-                        }
-                        _metalBuffer = IntPtr.Zero;
-                    }
-
-                    if (_metalDevice != IntPtr.Zero && IsMetalSupported)
-                    {
-                        IntPtr releaseSel = sel_registerName("release");
-                        objc_msgSend(_metalDevice, releaseSel);
-                        _metalDevice = IntPtr.Zero;
-                    }
-
-                    _disposed = true;
-                }
-            }
+            lock (_lock) { Dispose(true); }
             GC.SuppressFinalize(this);
         }
 
-        ~MetalBackend() => Dispose();
+        ~MetalBackend() => Dispose(false);
     }
 }

@@ -7,7 +7,7 @@
 // License:      MIT License
 // -----------------------------------------------------------------------------------------
 
-namespace ArborNet.Core.Functional
+namespace ArborNet.Core.Initializers
 {
 
     #region Using Statements:

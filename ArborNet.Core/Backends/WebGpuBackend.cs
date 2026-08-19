@@ -93,6 +93,9 @@ namespace ArborNet.Core.Backends
         /// </summary>
         internal IntPtr BufferPointer => _buffer;
 
+        public uint Version => 0;
+
+
         /// <summary>
         /// Initializes a new WebGPU-backed tensor with a designated shape.
         /// </summary>
@@ -197,11 +200,11 @@ namespace ArborNet.Core.Backends
             }
         }
 
-        public void AddInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Add", this, other, this);
+        public void AddInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Add", this, (WebGpuBackend)other, this);
         public void AddInPlace(float scalar) => WebGpuDriver.DispatchScalarOp("AddScalar", this, scalar, this);
-        public void SubtractInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Sub", this, other, this);
+        public void SubtractInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Sub", this, (WebGpuBackend)other, this);
         public void SubtractInPlace(float scalar) => WebGpuDriver.DispatchScalarOp("SubScalar", this, scalar, this);
-        public void MultiplyInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Mul", this, other, this);
+        public void MultiplyInPlace(ITensor other) => WebGpuDriver.DispatchBinaryOp("Mul", this, (WebGpuBackend)other, this);
         public void MultiplyInPlace(float scalar) => WebGpuDriver.DispatchScalarOp("MulScalar", this, scalar, this);
 
         public void Backward(ITensor? gradient = null) => AutogradEngine.Backward(this, gradient);
@@ -370,6 +373,66 @@ namespace ArborNet.Core.Backends
         public ITensor Sigmoid() => new Sigmoid().Forward(this);
         public ITensor Softmax(int axis = -1) => new Softmax(axis).Forward(this);
 
+        public string DType => "float32";
+
+        public ITensor Cast(string dtype)
+        {
+            if (dtype != "float32" && dtype != "float" && dtype != "f32")
+                throw new NotSupportedException($"Only float32 is currently supported. Requested: {dtype}");
+            return this; // already float32, zero-copy
+        }
+
+        // =================================================================================
+        // SQUEEZE (pure view – zero copy)  – FIXED
+        // =================================================================================
+        public ITensor Squeeze(int? axis = null)
+        {
+            if (axis == null)
+            {
+                var newDims = _shape.Dimensions.Where(d => d != 1).ToArray();
+                if (newDims.Length == 0)
+                    newDims = new[] { 1 };
+                return Reshape(newDims);
+            }
+
+            int a = axis.Value < 0 ? _shape.Rank + axis.Value : axis.Value;
+            if (a < 0 || a >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            if (_shape.Dimensions[a] != 1)
+                throw new InvalidOperationException($"Cannot squeeze axis {a} of size {_shape.Dimensions[a]}.");
+
+            var dims = _shape.Dimensions.ToList();
+            dims.RemoveAt(a);
+            if (dims.Count == 0)
+                dims.Add(1);
+
+            return Reshape(dims.ToArray()); // shares CudaAllocation – zero copy
+        }
+
+        public ITensor Unsqueeze(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? rank + axis + 1 : axis;
+            if (actualAxis < 0 || actualAxis > rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            var newDims = new int[rank + 1];
+            for (int i = 0, j = 0; i < newDims.Length; i++)
+                newDims[i] = (i == actualAxis) ? 1 : _shape.Dimensions[j++];
+
+            // Zero-copy reshape (shares the WebGPU buffer)
+            return Reshape(newDims);
+        }
+
+        // TopK can stay as the CPU fallback you already have
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            var cpu = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, Device.CPU);
+            var (v, i) = cpu.TopK(k, axis);
+            return (v.To(_device), i.To(_device));
+        }
+
         private ITensor FallbackToCpu(Func<ITensor, ITensor> cpuOp)
         {
             var cpuEquivalent = new CpuBackend(ToArray(), _shape.Clone(), _requiresGrad, _device);
@@ -388,6 +451,7 @@ namespace ArborNet.Core.Backends
             }
             GC.SuppressFinalize(this);
         }
+
         ~WebGpuBackend() => Dispose();
     }
 

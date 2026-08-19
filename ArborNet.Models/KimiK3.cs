@@ -32,21 +32,21 @@ namespace ArborNet.Models
     // 5. KIMI K3 DECODER BLOCK
     // =====================================================================================
 
-    public sealed class KimiK3Block : BaseLayer
+    public sealed class KimiK3cBlock : BaseLayer
     {
         private readonly LayerNorm _norm1;
-        private readonly DeltaAttention _kdaAttention;
+        private readonly DeltacAttention _kdaAttention;
         private readonly LayerNorm _norm2;
-        private readonly StableLatentMoE _latentMoE;
-        private readonly AttentionResidualsConnection _attnRes;
+        private readonly StableLatentcMoE _latentMoE;
+        private readonly AttentionResidualscConnection _attnRes;
 
-        public KimiK3Block(int layerIndex, int dModel, int nHeads, int numExperts, int activeExperts, int expertCapacity, Device device)
+        public KimiK3cBlock(int layerIndex, int dModel, int nHeads, int numExperts, int activeExperts, int expertCapacity, Device device)
         {
             _norm1 = new LayerNorm(new[] { dModel });
-            _kdaAttention = new DeltaAttention(dModel, nHeads, device);
+            _kdaAttention = new DeltacAttention(dModel, nHeads, device);
             _norm2 = new LayerNorm(new[] { dModel });
-            _latentMoE = new StableLatentMoE(dModel, numExperts, activeExperts, expertCapacity, device);
-            _attnRes = new AttentionResidualsConnection(layerIndex, device);
+            _latentMoE = new StableLatentcMoE(dModel, numExperts, activeExperts, expertCapacity, device);
+            _attnRes = new AttentionResidualscConnection(layerIndex, device);
 
             this.device = device;
         }
@@ -87,18 +87,18 @@ namespace ArborNet.Models
     // 6. MAIN FRONTIER MODEL: KIMI K3
     // =====================================================================================
 
-    public sealed class KimiK3 : BaseModel
+    public sealed class KimiK3c : BaseModel
     {
         private readonly Embedding _tokenEmbedding;
         private readonly Embedding _positionEmbedding;
-        private readonly List<KimiK3Block> _blocks;
+        private readonly List<KimiK3cBlock> _blocks;
         private readonly LayerNorm _finalNorm;
         private readonly Linear _outputHead;
         private readonly int _maxSeqLen;
         private readonly int _vocabSize;
         private readonly int _dModel;
 
-        public KimiK3(
+        public KimiK3c(
             int vocabSize,
             int dModel,
             int nHeads,
@@ -117,10 +117,10 @@ namespace ArborNet.Models
             _tokenEmbedding = new Embedding(vocabSize, dModel);
             _positionEmbedding = new Embedding(maxSeqLen, dModel);
 
-            _blocks = new List<KimiK3Block>(numLayers);
+            _blocks = new List<KimiK3cBlock>(numLayers);
             for (int i = 0; i < numLayers; i++)
             {
-                _blocks.Add(new KimiK3Block(i, dModel, nHeads, numExperts, activeExperts, expertCapacity, device));
+                _blocks.Add(new KimiK3cBlock(i, dModel, nHeads, numExperts, activeExperts, expertCapacity, device));
             }
 
             _finalNorm = new LayerNorm(new[] { dModel });
@@ -172,21 +172,29 @@ namespace ArborNet.Models
             // Reason state transitions
             var prevStateHigh = x.Clone();
 
+            //for (int i = 0; i < _blocks.Count; i++)
+            //{
+            //    x = _blocks[i].Forward(x, layerHistory);
+            //    layerHistory.Add(x);
+
+            //    // Check for dynamic hidden state halting to skip redundant reasoning depths
+            //    if (i > 0)
+            //    {
+            //        var diff = x.Subtract(prevStateHigh);
+            //        float stateDiff = diff.Pow(2).Sum().ToScalar();
+            //        if (stateDiff < 1e-4f)
+            //        {
+            //            break;
+            //        }
+            //    }
+            //    prevStateHigh = x.Clone();
+            //}
             for (int i = 0; i < _blocks.Count; i++)
             {
                 x = _blocks[i].Forward(x, layerHistory);
                 layerHistory.Add(x);
 
-                // Check for dynamic hidden state halting to skip redundant reasoning depths
-                if (i > 0)
-                {
-                    var diff = x.Subtract(prevStateHigh);
-                    float stateDiff = diff.Pow(2).Sum().ToScalar();
-                    if (stateDiff < 1e-4f)
-                    {
-                        break;
-                    }
-                }
+                // Remove the entire if (i > 0) stateDiff check block
                 prevStateHigh = x.Clone();
             }
 

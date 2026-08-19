@@ -283,7 +283,7 @@ namespace ArborNet.Fluent
         public X Dropout(float p = 0.5f) => Apply(new Dropout(p));
         public X Attention(int embedDim, int numHeads, bool useBias = true) => Apply(new Attention(embedDim, numHeads, useBias));
         public X MultiHeadAttention(int dModel, int numHeads, bool useBias = true) => Apply(new MultiHeadAttention(dModel, numHeads, useBias));
-        public X DeltaAttention(int dModel, int nHeads) => Apply(new DeltaAttention(dModel, nHeads, _tensor.Device));
+        public X DeltaAttention(int dModel, int nHeads) => Apply(new DeltacAttention(dModel, nHeads, _tensor.Device));
         public X Embedding(int numEmbeddings, int embeddingDim) => Apply(new Embedding(numEmbeddings, embeddingDim));
         public X PositionalEncoding(int dModel, int maxLen = 512) => Apply(new PositionalEncoding(dModel, maxLen, _tensor.Device));
 
@@ -296,7 +296,7 @@ namespace ArborNet.Fluent
         public X BasicBlock(int inChannels, int planes, int stride, int expansion) => Apply(new BasicBlock(inChannels, planes, stride, expansion, _tensor.Device));
         public X BottleneckBlock(int inChannels, int planes, int stride, int expansion) => Apply(new BottleneckBlock(inChannels, planes, stride, expansion, _tensor.Device));
         public X StableLatentMoE(int dModel, int numExperts, int activeExperts, int expertCapacity)
-            => Apply(new StableLatentMoE(dModel, numExperts, activeExperts, expertCapacity, _tensor.Device));
+            => Apply(new StableLatentcMoE(dModel, numExperts, activeExperts, expertCapacity, _tensor.Device));
 
         // -------------------------
         // Fractal & Subquadratic

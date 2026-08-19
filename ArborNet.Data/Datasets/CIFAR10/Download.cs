@@ -15,6 +15,7 @@ namespace ArborNet.Data.Datasets.CIFAR10
     using System;
     using System.IO;
     using System.Net.Http;
+    using System.Security.Cryptography;
     using System.Threading.Tasks;
     /// <summary>
     /// Provides utility functionality to download the CIFAR-10 dataset archive from official sources.
@@ -85,9 +86,12 @@ namespace ArborNet.Data.Datasets.CIFAR10
         /// }
         /// </code>
         /// </example>
-
         public static async Task DownloadDatasetAsync(string destinationPath)
         {
+
+            // Known official hash for CIFAR-10 binary payload
+            const string ExpectedMd5 = "c58f30108f718f92721af3b95e74349a";
+
             if (string.IsNullOrWhiteSpace(destinationPath))
             {
                 throw new ArgumentException("Destination path cannot be null or empty.", nameof(destinationPath));
@@ -99,24 +103,42 @@ namespace ArborNet.Data.Datasets.CIFAR10
             }
 
             string filePath = Path.Combine(destinationPath, FileName);
+
             using (HttpClient client = new HttpClient())
             {
                 try
                 {
+                    // 1. Stream the download to disk
                     using (HttpResponseMessage response = await client.GetAsync(Url, HttpCompletionOption.ResponseHeadersRead))
                     {
                         response.EnsureSuccessStatusCode();
 
                         using (Stream contentStream = await response.Content.ReadAsStreamAsync())
+                        using (FileStream fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
                         {
-                            using (FileStream fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
-                            {
-                                await contentStream.CopyToAsync(fileStream);
-                            }
+                            await contentStream.CopyToAsync(fileStream);
                         }
                     }
 
-                    Console.WriteLine($"CIFAR10 dataset downloaded successfully to: {filePath}");
+                    // 2. Post-Download Validation
+                    string hashString;
+                    using (var md5 = MD5.Create())
+                    using (var stream = File.OpenRead(filePath))
+                    {
+                        var hashBytes = md5.ComputeHash(stream);
+                        hashString = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+                    } // Stream is disposed and file lock released here
+
+                    // 3. Verify Checksum
+                    if (hashString != ExpectedMd5)
+                    {
+                        File.Delete(filePath); // Purge corrupted file safely
+                        throw new InvalidDataException(
+                            $"Checksum verification failed. Expected MD5 '{ExpectedMd5}', got '{hashString}'. " +
+                            "The downloaded dataset was corrupted and has been deleted.");
+                    }
+
+                    Console.WriteLine($"CIFAR10 dataset downloaded and verified successfully to: {filePath}");
                 }
                 catch (HttpRequestException ex)
                 {

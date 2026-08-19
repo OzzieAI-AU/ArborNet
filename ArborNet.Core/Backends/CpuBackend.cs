@@ -30,6 +30,9 @@ namespace ArborNet.Core.Backends
     /// </summary>
     public sealed class CpuBackend : ITensor, IDisposable
     {
+
+        public uint Version { get; private set; } = 0;
+
         private float[] _data;
         private readonly int _length;
         private bool _isRented;
@@ -49,6 +52,18 @@ namespace ArborNet.Core.Backends
         public Func<ITensor, ITensor>? GradFn { get => _gradFn; set => _gradFn = value; }
         public float[] Data => ToArray();
 
+
+
+        private CpuBackend(float[] shared, TensorShape shape, bool requiresGrad, Device device, bool share)
+        {
+            _shape = shape;
+            _length = shape.TotalElements;
+            _data = shared;
+            _isRented = false;
+            _requiresGrad = requiresGrad;
+            _device = device;
+        }
+
         public CpuBackend(TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape ?? throw new ArgumentNullException(nameof(shape));
@@ -61,15 +76,317 @@ namespace ArborNet.Core.Backends
             TensorScope.Register(this);
         }
 
+
         public CpuBackend(float[] data, TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape ?? throw new ArgumentNullException(nameof(shape));
             _length = shape.TotalElements;
-            _data = data ?? throw new ArgumentNullException(nameof(data));
+            if (data == null) throw new ArgumentNullException(nameof(data));
+            if (data.Length < _length)
+                throw new ArgumentException($"Data length {data.Length} < shape {_length}");
+
+            // ALWAYS copy — never alias caller memory
+            _data = new float[_length];
+            Array.Copy(data, 0, _data, 0, _length);
             _isRented = false;
             _requiresGrad = requiresGrad;
             _device = device ?? Device.CPU;
         }
+
+        public void ClearGrad()
+        {
+            _grad = null;
+            // DO NOT touch _gradFn or _inputs — that is the tape
+        }
+
+        public static ITensor FromArray(float[] data, TensorShape shape, Device? device = null)
+            => new CpuBackend(data, shape, requiresGrad: false, device);
+
+        /// <summary>
+        /// Rebuild a tensor from a host buffer but STAY ON THE TAPE.
+        /// backward(grad) must write grads into each saved input via AccumulateGrad.
+        /// </summary>
+        public static ITensor Apply(
+            float[] forwardData,
+            TensorShape outShape,
+            ITensor[] saved,
+            Func<ITensor, ITensor> backward,
+            Device? device = null)
+        {
+            bool req = saved.Any(t => t.RequiresGrad);
+            var raw = new CpuBackend(forwardData, outShape, req, device ?? saved[0].Device)
+            {
+                Inputs = saved.Select(Unwrap).Cast<ITensor>().ToArray()
+            };
+
+            if (req)
+            {
+                raw.GradFn = gradOutput =>
+                {
+                    backward(gradOutput);
+                    return gradOutput;
+                };
+            }
+            return new Tensor(raw);
+        }
+
+
+        public ITensor BroadcastTo(TensorShape targetShape)
+        {
+            if (_shape.Equals(targetShape)) return new Tensor(this);
+
+            var result = new CpuBackend(targetShape, _requiresGrad, _device)
+            {
+                Inputs = new ITensor[] { this }
+            };
+            var strides = ComputeBroadcastStrides(_shape.Dimensions, targetShape.Dimensions);
+            int srcLen = _length;
+
+            for (int i = 0; i < result._length; i++)
+            {
+                int srcIdx = GetBroadcastIndex(i, strides, targetShape.Dimensions);
+                if ((uint)srcIdx >= (uint)srcLen)
+                    throw new InvalidOperationException($"Broadcast index {srcIdx} out of range {srcLen}");
+                result._data[i] = _data[srcIdx];   // NO modulo wrap
+            }
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var srcShape = _shape.Clone();
+                result.GradFn = gradOutput =>
+                {
+                    // MUST reduce broadcast dims (sum), not pass through / rebroadcast
+                    self.AccumulateGrad(ReduceGradientToTarget(gradOutput, srcShape));
+                    return gradOutput;
+                };
+            }
+            return new Tensor(result);
+        }
+
+        public ITensor Exp()
+        {
+            var result = new CpuBackend(_shape, _requiresGrad, _device) { Inputs = new ITensor[] { this } };
+            for (int i = 0; i < _length; i++)
+            {
+                float z = _data[i];
+                if (z > 80f) z = 80f;          // prevent Inf
+                if (z < -80f) z = -80f;
+                result._data[i] = MathF.Exp(z);
+            }
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var fwd = result;              // save y = exp(x)
+                result.GradFn = grad =>
+                {
+                    self.AccumulateGrad(grad.Multiply(fwd));
+                    return grad;
+                };
+            }
+            return new Tensor(result);
+        }
+
+        public ITensor Clip(float min, float max)
+        {
+            if (min > max) (min, max) = (max, min);
+            var result = new CpuBackend(_shape, _requiresGrad, _device) { Inputs = new ITensor[] { this } };
+            var mask = new float[_length];
+            for (int i = 0; i < _length; i++)
+            {
+                float v = _data[i];
+                if (v < min) { result._data[i] = min; mask[i] = 0f; }
+                else if (v > max) { result._data[i] = max; mask[i] = 0f; }
+                else { result._data[i] = v; mask[i] = 1f; }
+            }
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var m = mask;
+                var shp = _shape;
+                var dev = _device;
+                result.GradFn = grad =>
+                {
+                    var g = grad.ToArray();
+                    var gi = new float[g.Length];
+                    int n = Math.Min(g.Length, m.Length);
+                    for (int i = 0; i < n; i++) gi[i] = g[i] * m[i];
+                    self.AccumulateGrad(new CpuBackend(gi, shp, false, dev));
+                    return grad;
+                };
+            }
+            return new Tensor(result);
+        }
+
+        /// <summary>Stable softmax on last axis. Saves output for backward.</summary>
+        public ITensor SoftmaxLast()
+        {
+            if (_shape.Rank != 2)
+                throw new NotSupportedException("SoftmaxLast expects [N, C]");
+
+            int n = _shape[0], c = _shape[1];
+            var y = new float[n * c];
+
+            for (int i = 0; i < n; i++)
+            {
+                int off = i * c;
+                float mx = _data[off];
+                for (int j = 1; j < c; j++)
+                    if (_data[off + j] > mx) mx = _data[off + j];
+
+                double sum = 0;
+                for (int j = 0; j < c; j++)
+                {
+                    float e = MathF.Exp(Math.Clamp(_data[off + j] - mx, -80f, 80f));
+                    y[off + j] = e;
+                    sum += e;
+                }
+                float inv = (float)(1.0 / (sum + 1e-12));
+                for (int j = 0; j < c; j++) y[off + j] *= inv;
+            }
+
+            var result = new CpuBackend(y, _shape, _requiresGrad, _device)
+            {
+                Inputs = new ITensor[] { this }
+            };
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var ySave = y;
+                var shp = _shape;
+                var dev = _device;
+                result.GradFn = grad =>
+                {
+                    // dL/dx_i = y_i * (g_i - sum_j g_j y_j)
+                    var g = grad.ToArray();
+                    var gx = new float[n * c];
+                    for (int i = 0; i < n; i++)
+                    {
+                        int off = i * c;
+                        double dot = 0;
+                        for (int j = 0; j < c; j++) dot += g[off + j] * ySave[off + j];
+                        for (int j = 0; j < c; j++)
+                            gx[off + j] = ySave[off + j] * (g[off + j] - (float)dot);
+                    }
+                    self.AccumulateGrad(new CpuBackend(gx, shp, false, dev));
+                    return grad;
+                };
+            }
+            return new Tensor(result);
+        }
+
+
+
+        public ITensor Reshape(params int[] newShape)
+        {
+            var ns = new TensorShape(newShape);
+            if (ns.TotalElements != _length)
+                throw new ArgumentException($"Reshape volume mismatch: {_length} vs {ns.TotalElements}");
+
+            // COPY — never share a rented ArrayPool buffer (finalizer UAF)
+            float[] copy;
+            lock (_lock)
+            {
+                copy = new float[_length];
+                Array.Copy(_data, 0, copy, 0, _length);
+            }
+
+            var raw = new CpuBackend(copy, ns, _requiresGrad, _device, share: true)
+            {
+                Inputs = new ITensor[] { this }
+            };
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var oldDims = (int[])_shape.Dimensions.Clone();
+                raw.GradFn = grad =>
+                {
+                    self.AccumulateGrad(grad.Reshape(oldDims));
+                    return grad;
+                };
+            }
+            return new Tensor(raw);
+        }
+
+        public ITensor Softmax(int axis = -1)
+        {
+            int a = axis < 0 ? _shape.Rank + axis : axis;
+            if (_shape.Rank == 2 && a == 1)
+                return SoftmaxLast();
+            return new Softmax(axis).Forward(this);
+        }
+
+        public ITensor Max(int axis = -1, bool keepDims = false)
+            => ReduceExtremum(axis, findMax: true, keepDims);
+
+        public ITensor Min(int axis = -1, bool keepDims = false)
+            => ReduceExtremum(axis, findMax: false, keepDims);
+
+        private ITensor ReduceExtremum(int axis, bool findMax, bool keepDims)
+        {
+            if (axis < 0) axis = _shape.Rank + axis;
+            if (axis < 0 || axis >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            var dims = _shape.Dimensions;
+            int reducedSize = dims[axis];
+            int outer = 1; for (int i = 0; i < axis; i++) outer *= dims[i];
+            int inner = 1; for (int i = axis + 1; i < dims.Length; i++) inner *= dims[i];
+
+            int[] outDims = keepDims
+                ? dims.Select((d, i) => i == axis ? 1 : d).ToArray()
+                : dims.Where((_, i) => i != axis).ToArray();
+
+            var values = new float[outer * inner];
+            var arg = new int[outer * inner];
+
+            for (int o = 0; o < outer; o++)
+                for (int i = 0; i < inner; i++)
+                {
+                    int baseIdx = o * reducedSize * inner + i;
+                    float best = _data[baseIdx];
+                    int bestR = 0;
+                    for (int r = 1; r < reducedSize; r++)
+                    {
+                        float v = _data[baseIdx + r * inner];
+                        if (findMax ? v > best : v < best) { best = v; bestR = r; }
+                    }
+                    values[o * inner + i] = best;
+                    arg[o * inner + i] = bestR;
+                }
+
+            var raw = new CpuBackend(values, new TensorShape(outDims), _requiresGrad, _device)
+            {
+                Inputs = new ITensor[] { this }
+            };
+
+            if (_requiresGrad)
+            {
+                var self = this;
+                var capturedArg = arg;
+                int capOuter = outer, capInner = inner, capRed = reducedSize;
+                raw.GradFn = grad =>
+                {
+                    var g = grad.ToArray();
+                    var gi = new float[self._length];
+                    for (int o = 0; o < capOuter; o++)
+                        for (int i = 0; i < capInner; i++)
+                        {
+                            int r = capturedArg[o * capInner + i];
+                            gi[o * capRed * capInner + r * capInner + i] = g[o * capInner + i];
+                        }
+                    self.AccumulateGrad(new CpuBackend(gi, self._shape, false, self._device));
+                    return grad;
+                };
+            }
+            return new Tensor(raw);
+        }
+
+
 
         public void AccumulateGrad(ITensor delta)
         {
@@ -93,6 +410,7 @@ namespace ArborNet.Core.Backends
             var otherRaw = Unwrap(other);
             lock (_lock)
             {
+                Version++; // Increment version
                 int len = Math.Min(_length, otherRaw._length);
                 ArborNet.Core.Native.SIMD.Accelerate.Add(_data, _data, otherRaw._data, len);
             }
@@ -102,6 +420,7 @@ namespace ArborNet.Core.Backends
         {
             lock (_lock)
             {
+                Version++; // Increment version
                 for (int i = 0; i < _length; i++) _data[i] += scalar;
             }
         }
@@ -111,6 +430,7 @@ namespace ArborNet.Core.Backends
             var otherRaw = Unwrap(other);
             lock (_lock)
             {
+                Version++; // Increment version
                 int len = Math.Min(_length, otherRaw._length);
                 ArborNet.Core.Native.SIMD.Accelerate.Subtract(_data, _data, otherRaw._data, len);
             }
@@ -120,6 +440,7 @@ namespace ArborNet.Core.Backends
         {
             lock (_lock)
             {
+                Version++; // Increment version
                 for (int i = 0; i < _length; i++) _data[i] -= scalar;
             }
         }
@@ -129,6 +450,7 @@ namespace ArborNet.Core.Backends
             var otherRaw = Unwrap(other);
             lock (_lock)
             {
+                Version++; // Increment version
                 int len = Math.Min(_length, otherRaw._length);
                 ArborNet.Core.Native.SIMD.Accelerate.Multiply(_data, _data, otherRaw._data, len);
             }
@@ -138,6 +460,7 @@ namespace ArborNet.Core.Backends
         {
             lock (_lock)
             {
+                Version++; // Increment version
                 for (int i = 0; i < _length; i++) _data[i] *= scalar;
             }
         }
@@ -225,6 +548,8 @@ namespace ArborNet.Core.Backends
 
             lock (_lock)
             {
+                Version++; // Increment version
+
                 if (_isRented && _data != null)
                 {
                     ArrayPool<float>.Shared.Return(_data);
@@ -283,34 +608,6 @@ namespace ArborNet.Core.Backends
                 remaining /= dimSize;
             }
             return idx;
-        }
-
-        public ITensor BroadcastTo(TensorShape targetShape)
-        {
-            if (_shape.Equals(targetShape)) return new Tensor(this);
-            var result = new CpuBackend(targetShape, _requiresGrad, _device)
-            {
-                Inputs = new[] { this }
-            };
-            var strides = ComputeBroadcastStrides(_shape.Dimensions, targetShape.Dimensions);
-
-            for (int i = 0; i < result._length; i++)
-            {
-                int srcIdx = GetBroadcastIndex(i, strides, targetShape.Dimensions);
-                result._data[i] = _data[srcIdx % _length];
-            }
-
-            if (_requiresGrad)
-            {
-                var capturedSelf = this;
-                result.GradFn = gradOutput =>
-                {
-                    capturedSelf.AccumulateGrad(gradOutput);
-                    return gradOutput;
-                };
-            }
-
-            return new Tensor(result);
         }
 
         public ITensor Add(ITensor other)
@@ -503,7 +800,6 @@ namespace ArborNet.Core.Backends
         public ITensor Multiply(double scalar) => Multiply((float)scalar);
         public ITensor Divide(double scalar) => Multiply(1.0 / scalar);
         public ITensor Negate() => ElementwiseScalar(x => -x, g => g.Negate());
-        public ITensor Exp() => ElementwiseScalar(MathF.Exp, g => g.Multiply(this.Exp()));
         public ITensor Log() => ElementwiseScalar(MathF.Log, g => g.Divide(this));
         public ITensor Sqrt() => ElementwiseScalar(MathF.Sqrt, g => g.Divide(this.Sqrt().Multiply(2)));
         public ITensor Abs() => ElementwiseScalar(MathF.Abs, g => g.Multiply(this.GreaterThan(Tensor.Zeros(_shape)).Multiply(2).Subtract(1)));
@@ -644,31 +940,6 @@ namespace ArborNet.Core.Backends
             return inv;
         }
 
-        public ITensor Reshape(params int[] newShape)
-        {
-            var ns = new TensorShape(newShape);
-            if (ns.TotalElements != _shape.TotalElements)
-                throw new ArgumentException("Total element mismatch in Reshape.");
-
-            var rawResult = new CpuBackend(_data, ns, _requiresGrad, _device)
-            {
-                Inputs = new[] { this }
-            };
-
-            if (_requiresGrad)
-            {
-                var capturedSelf = this;
-                rawResult.GradFn = gradOutput =>
-                {
-                    var reshapedGrad = gradOutput.Reshape(_shape.Dimensions);
-                    capturedSelf.AccumulateGrad(reshapedGrad);
-                    return gradOutput;
-                };
-            }
-
-            return new Tensor(rawResult);
-        }
-
         public ITensor Sum(int? axis = null, bool keepDims = false)
         {
             if (!axis.HasValue)
@@ -791,21 +1062,35 @@ namespace ArborNet.Core.Backends
             if (_requiresGrad)
             {
                 var capturedSelf = this;
+                int capturedAxis = axis;
+                bool capturedMean = isMean;
+                int capturedSize = reducedSize;
+                bool capturedKeep = keepDims;
                 rawResult.GradFn = grad =>
                 {
-                    var expanded = grad.BroadcastTo(_shape);
-                    var finalGrad = isMean ? expanded.Divide(reducedSize) : expanded;
-                    capturedSelf.AccumulateGrad(finalGrad);
-                    return finalGrad;
+                    // Insert reduced axis if it was dropped, THEN broadcast (sum)
+                    int[] dims;
+                    if (capturedKeep)
+                    {
+                        dims = grad.Shape.Dimensions.ToArray();
+                    }
+                    else
+                    {
+                        var gDims = grad.Shape.Dimensions;
+                        dims = new int[gDims.Length + 1];
+                        for (int i = 0, j = 0; i < dims.Length; i++)
+                            dims[i] = (i == capturedAxis) ? 1 : gDims[j++];
+                    }
+                    var g = grad.Reshape(dims);
+                    var expanded = g.BroadcastTo(capturedSelf._shape);
+                    capturedSelf.AccumulateGrad(capturedMean ? expanded.Divide(capturedSize) : expanded);
+                    return grad;
                 };
             }
 
+
             return new Tensor(rawResult);
         }
-
-        public ITensor Max(int axis = -1, bool keepDims = false) => ReduceAlongAxis(axis < 0 ? _shape.Rank - 1 : axis, false, keepDims);
-
-        public ITensor Min(int axis = -1, bool keepDims = false) => ReduceAlongAxis(axis < 0 ? _shape.Rank - 1 : axis, false, keepDims);
 
         public ITensor LogicalNot()
         {
@@ -813,39 +1098,6 @@ namespace ArborNet.Core.Backends
             for (int i = 0; i < _length; i++)
             {
                 result._data[i] = _data[i] == 0f ? 1f : 0f;
-            }
-            return new Tensor(result);
-        }
-
-        public ITensor Clip(float v1, float v2)
-        {
-            if (v1 > v2) (v1, v2) = (v2, v1);
-            var result = new CpuBackend(_shape, _requiresGrad, _device)
-            {
-                Inputs = new[] { this }
-            };
-            for (int i = 0; i < _length; i++)
-            {
-                float x = _data[i];
-                result._data[i] = x < v1 ? v1 : (x > v2 ? v2 : x);
-            }
-
-            if (_requiresGrad)
-            {
-                var capturedSelf = this;
-                result.GradFn = gradOutput =>
-                {
-                    var maskData = new float[_length];
-                    for (int i = 0; i < _length; i++)
-                    {
-                        float x = capturedSelf._data[i];
-                        maskData[i] = (x >= v1 && x <= v2) ? 1f : 0f;
-                    }
-                    var mask = new CpuBackend(maskData, _shape, false, _device);
-                    var finalGrad = gradOutput.Multiply(new Tensor(mask));
-                    capturedSelf.AccumulateGrad(finalGrad);
-                    return finalGrad;
-                };
             }
             return new Tensor(result);
         }
@@ -894,7 +1146,6 @@ namespace ArborNet.Core.Backends
         public ITensor Tanh() => new Tanh().Forward(this);
         public ITensor Relu() => new ReLU().Forward(this);
         public ITensor Sigmoid() => new Sigmoid().Forward(this);
-        public ITensor Softmax(int axis = -1) => new Softmax(axis).Forward(this);
 
         public ITensor Slice(params (int start, int end, int step)[] slices)
         {
@@ -1102,12 +1353,6 @@ namespace ArborNet.Core.Backends
             ArborNet.Core.Autograd.AutogradEngine.Backward(this, gradient);
         }
 
-        public void ClearGrad()
-        {
-            _grad = null;
-            _gradFn = null;
-        }
-
         public static ITensor Zeros(TensorShape shape, Device? device = null) => new CpuBackend(shape, false, device);
 
         public static ITensor Ones(TensorShape shape, Device? device = null)
@@ -1121,8 +1366,6 @@ namespace ArborNet.Core.Backends
         }
 
         public static ITensor FromScalar(float value, Device? device = null) => new CpuBackend(new[] { value }, new TensorShape(1), false, device);
-
-        public static ITensor FromArray(float[] data, TensorShape shape, Device? device = null) => new CpuBackend(data, shape, false, device);
 
         public static ITensor Rand(TensorShape shape, Device? device = null)
         {
@@ -1238,6 +1481,153 @@ namespace ArborNet.Core.Backends
                 };
             }
             return new Tensor(result);
+        }
+
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            if (axis < 0) axis = _shape.Rank + axis;
+            if (axis < 0 || axis >= _shape.Rank) throw new ArgumentOutOfRangeException(nameof(axis));
+
+            var dims = _shape.Dimensions;
+            int axisSize = dims[axis];
+            if (k <= 0 || k > axisSize) throw new ArgumentOutOfRangeException(nameof(k), "k must be between 1 and the size of the target axis.");
+
+            // Calculate strides based on your existing reduction patterns
+            int outer = 1; for (int i = 0; i < axis; i++) outer *= dims[i];
+            int inner = 1; for (int i = axis + 1; i < dims.Length; i++) inner *= dims[i];
+
+            int[] outDims = (int[])dims.Clone();
+            outDims[axis] = k;
+            var outShape = new TensorShape(outDims);
+
+            float[] outValues = new float[outShape.TotalElements];
+            float[] outIndices = new float[outShape.TotalElements]; // Indices stored as floats for tensor compatibility
+
+            for (int o = 0; o < outer; o++)
+            {
+                for (int i = 0; i < inner; i++)
+                {
+                    int baseIdx = o * axisSize * inner + i;
+
+                    // Extract the 1D slice along the target axis
+                    var slice = new (float val, int origIdx)[axisSize];
+                    for (int r = 0; r < axisSize; r++)
+                    {
+                        slice[r] = (_data[baseIdx + r * inner], r);
+                    }
+
+                    // Sort descending to find Top-K
+                    Array.Sort(slice, (a, b) => b.val.CompareTo(a.val));
+
+                    for (int r = 0; r < k; r++)
+                    {
+                        int outIdx = o * k * inner + r * inner + i;
+                        outValues[outIdx] = slice[r].val;
+                        outIndices[outIdx] = slice[r].origIdx;
+                    }
+                }
+            }
+
+            var valBackend = new CpuBackend(outValues, outShape, _requiresGrad, _device)
+            {
+                Inputs = new[] { this }
+            };
+            var idxBackend = new CpuBackend(outIndices, outShape, false, _device);
+
+            // Register Autograd: Scatter gradients back to the original index positions
+            if (_requiresGrad)
+            {
+                var capturedSelf = this;
+                var capturedIndices = outIndices;
+
+                valBackend.GradFn = gradOutput =>
+                {
+                    float[] goData = gradOutput.ToArray();
+                    float[] giData = new float[_length]; // Initializes with Zeros
+
+                    for (int o = 0; o < outer; o++)
+                    {
+                        for (int i = 0; i < inner; i++)
+                        {
+                            for (int r = 0; r < k; r++)
+                            {
+                                int outIdx = o * k * inner + r * inner + i;
+                                int origIdx = (int)capturedIndices[outIdx];
+                                int inIdx = o * axisSize * inner + origIdx * inner + i;
+
+                                giData[inIdx] += goData[outIdx]; // Scatter sum
+                            }
+                        }
+                    }
+
+                    var gradInput = new CpuBackend(giData, _shape.Clone(), false, _device);
+                    capturedSelf.AccumulateGrad(gradInput);
+                    return gradOutput;
+                };
+            }
+
+            // Return Tuple of wrapped Tensors
+            return (new Tensor(valBackend), new Tensor(idxBackend));
+        }
+
+        public string DType => "float32";
+
+        // =================================================================================
+        // SQUEEZE (pure view – zero copy)  – FIXED
+        // =================================================================================
+        public ITensor Squeeze(int? axis = null)
+        {
+            if (axis == null)
+            {
+                var newDims = _shape.Dimensions.Where(d => d != 1).ToArray();
+                if (newDims.Length == 0)
+                    newDims = new[] { 1 };
+                return Reshape(newDims);
+            }
+
+            int a = axis.Value < 0 ? _shape.Rank + axis.Value : axis.Value;
+            if (a < 0 || a >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            if (_shape.Dimensions[a] != 1)
+                throw new InvalidOperationException($"Cannot squeeze axis {a} of size {_shape.Dimensions[a]}.");
+
+            var dims = _shape.Dimensions.ToList();
+            dims.RemoveAt(a);
+            if (dims.Count == 0)
+                dims.Add(1);
+
+            return Reshape(dims.ToArray()); // shares CudaAllocation – zero copy
+        }
+
+        public ITensor Cast(string dtype)
+        {
+            if (dtype != "float32" && dtype != "float" && dtype != "f32")
+                throw new NotSupportedException($"Only float32 is currently supported. Requested: {dtype}");
+
+            // Already float32 – return a cheap view / clone of the backend
+            return new Tensor(this);
+        }
+
+        public ITensor Unsqueeze(int axis)
+        {
+            int rank = _shape.Rank;
+            // +1 because we are inserting a new dimension
+            int actualAxis = axis < 0 ? rank + axis + 1 : axis;
+
+            if (actualAxis < 0 || actualAxis > rank)
+                throw new ArgumentOutOfRangeException(nameof(axis), "Unsqueeze axis is out of bounds.");
+
+            var newDims = new int[rank + 1];
+            for (int i = 0, j = 0; i < newDims.Length; i++)
+            {
+                if (i == actualAxis)
+                    newDims[i] = 1;
+                else
+                    newDims[i] = _shape.Dimensions[j++];
+            }
+
+            return Reshape(newDims);
         }
 
         public void Dispose()

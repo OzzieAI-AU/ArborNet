@@ -13,7 +13,6 @@ namespace ArborNet.Layers
 
     #region Using Statements:
 
-    using ArborNet.Core.Functional;
     using ArborNet.Core.Interfaces;
     using ArborNet.Core.Layers;
     using ArborNet.Core.Native.PInvoke;
@@ -24,6 +23,7 @@ namespace ArborNet.Layers
 
     using ArborNet.Core.Devices;
     using ArborNet.Core.Backends;
+    using ArborNet.Core.Initializers;
 
 
     #endregion

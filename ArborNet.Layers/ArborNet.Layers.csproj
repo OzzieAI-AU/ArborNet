@@ -19,9 +19,9 @@
     <Compile Include="AdvancedLayers.cs" />
     <Compile Include="Attention.cs" />
     <Compile Include="ActivationLayer.cs" />
-    <Compile Include="AttentionResidualsConnection.cs" />
-    <Compile Include="DeltaAttention.cs" />
-    <Compile Include="StableLatentMoE.cs" />
+    <Compile Include="AttentionResidualscConnection.cs" />
+    <Compile Include="DeltacAttention.cs" />
+    <Compile Include="StableLatentcMoE.cs" />
     <Compile Include="SubquadraticAttentionOp.cs" />
     <Compile Include="FractalLinear.cs" />
     <Compile Include="SubquadraticAttentionLayer.cs" />

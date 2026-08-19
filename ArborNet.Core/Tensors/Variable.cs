@@ -29,17 +29,22 @@ namespace ArborNet.Core.Tensors
 
     public class Variable : ITensor
     {
+
+        public uint Version => _inner.Version;
+
         internal readonly ITensor _inner;
         private readonly object _gradLock = new();
+        
         /// <summary>
         /// Gets or sets the input tensors that generated this tensor in the computational graph.
         /// </summary>
-
         public ITensor[] Inputs { get => _inner.Inputs; set => _inner.Inputs = value; }
+        
         /// <summary>
         /// Gets the shape (dimensions) of the underlying tensor.
         /// </summary>
         public TensorShape Shape => _inner.Shape;
+        
         /// <summary>
         /// Gets the execution device (e.g., CPU, CUDA) where this tensor resides.
         /// </summary>
@@ -72,6 +77,21 @@ namespace ArborNet.Core.Tensors
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             RequiresGrad = requiresGrad || inner.RequiresGrad;
         }
+
+        public ITensor Cast(string dtype) => new Variable(_inner.Cast(dtype), RequiresGrad);
+
+        public ITensor Squeeze(int? axis) => new Variable(_inner.Squeeze(axis), RequiresGrad);
+
+        public ITensor Unsqueeze(int axis) => new Variable(_inner.Unsqueeze(axis), RequiresGrad);
+
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            var (v, i) = _inner.TopK(k, axis);
+            return (new Variable(v, RequiresGrad), new Variable(i, false));
+        }
+
+        public string DType => "float32";
+
         /// <summary>
         /// Sets the underlying tensor data with the specified float array.
         /// </summary>

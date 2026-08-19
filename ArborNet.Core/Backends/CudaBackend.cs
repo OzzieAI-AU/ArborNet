@@ -109,6 +109,20 @@ namespace ArborNet.Core.Backends
         public float[] Data => ToArray();
         public IntPtr DevicePointer => _allocation.Ptr;
 
+
+        // =================================================================================
+        // VERSION TRACKING (required for correct autograd)
+        // =================================================================================
+        private uint _version = 0;
+        public uint Version => _version;
+
+        // Call _version++; inside every in-place method (AddInPlace, MultiplyInPlace, etc.)
+
+        // =================================================================================
+        // DATA TYPE & CAST (zero-copy identity)
+        // =================================================================================
+        public string DType => "float32";
+
         public CudaBackend(TensorShape shape, bool requiresGrad = false, Device? device = null)
         {
             _shape = shape?.Clone() ?? throw new ArgumentNullException(nameof(shape));
@@ -208,35 +222,42 @@ namespace ArborNet.Core.Backends
         public void AddInPlace(ITensor other)
         {
             var o = Tensor.Unwrap(other) as CudaBackend ?? throw new ArgumentException("Operand must reside on CUDA.");
+            _version++;                                   // ← ADD
             CUDA.NativeAdd(_allocation.Ptr, o.DevicePointer, _allocation.Ptr, _shape.TotalElements);
         }
 
         public void AddInPlace(float scalar)
         {
+            _version++;                                   // ← ADD
             CUDA.NativeAddScalarInPlace(_allocation.Ptr, scalar, _shape.TotalElements);
         }
 
         public void SubtractInPlace(ITensor other)
         {
             var o = Tensor.Unwrap(other) as CudaBackend ?? throw new ArgumentException("Operand must reside on CUDA.");
+            _version++;                                   // ← ADD
             CUDA.NativeSubtract(_allocation.Ptr, o.DevicePointer, _allocation.Ptr, _shape.TotalElements);
         }
 
         public void SubtractInPlace(float scalar)
         {
+            _version++;                                   // ← ADD
             CUDA.NativeSubtractScalarInPlace(_allocation.Ptr, scalar, _shape.TotalElements);
         }
 
         public void MultiplyInPlace(ITensor other)
         {
             var o = Tensor.Unwrap(other) as CudaBackend ?? throw new ArgumentException("Operand must reside on CUDA.");
+            _version++;                                   // ← ADD
             CUDA.NativeMultiply(_allocation.Ptr, o.DevicePointer, _allocation.Ptr, _shape.TotalElements);
         }
 
         public void MultiplyInPlace(float scalar)
         {
+            _version++;                                   // ← ADD
             CUDA.NativeMultiplyScalarInPlace(_allocation.Ptr, scalar, _shape.TotalElements);
         }
+
 
         public ITensor Slice(params (int start, int end, int step)[] slices)
         {
@@ -977,21 +998,6 @@ namespace ArborNet.Core.Backends
         public bool IsCuda() => true;
         public IEnumerable<ITensor> Parameters() { yield return this; }
 
-        public void Dispose()
-        {
-            lock (_lock)
-            {
-                if (!_disposed)
-                {
-                    _allocation.Dispose();
-                    _disposed = true;
-                }
-            }
-            GC.SuppressFinalize(this);
-        }
-
-        ~CudaBackend() => Dispose();
-
         // =================================================================================
         // COMPARISON OPERATIONS (No CPU Copies)
         // =================================================================================
@@ -1067,5 +1073,156 @@ namespace ArborNet.Core.Backends
 
             return result;
         }
+
+        public ITensor Cast(string dtype)
+        {
+            if (dtype != "float32" && dtype != "float" && dtype != "f32")
+                throw new NotSupportedException($"Only float32 is currently supported. Requested: {dtype}");
+            return this; // pure identity – zero copy, same allocation
+        }
+
+        // =================================================================================
+        // SQUEEZE (pure view – zero copy)  – FIXED
+        // =================================================================================
+        public ITensor Squeeze(int? axis = null)
+        {
+            if (axis == null)
+            {
+                var newDims = _shape.Dimensions.Where(d => d != 1).ToArray();
+                if (newDims.Length == 0)
+                    newDims = new[] { 1 };
+                return Reshape(newDims);
+            }
+
+            int a = axis.Value < 0 ? _shape.Rank + axis.Value : axis.Value;
+            if (a < 0 || a >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            if (_shape.Dimensions[a] != 1)
+                throw new InvalidOperationException($"Cannot squeeze axis {a} of size {_shape.Dimensions[a]}.");
+
+            var dims = _shape.Dimensions.ToList();
+            dims.RemoveAt(a);
+            if (dims.Count == 0)
+                dims.Add(1);
+
+            return Reshape(dims.ToArray()); // shares CudaAllocation – zero copy
+        }
+
+        // =================================================================================
+        // UNSQUEEZE (pure view – zero copy)
+        // =================================================================================
+        public ITensor Unsqueeze(int axis)
+        {
+            int rank = _shape.Rank;
+            int actualAxis = axis < 0 ? rank + axis + 1 : axis;
+
+            if (actualAxis < 0 || actualAxis > rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            var newDims = new int[rank + 1];
+            for (int i = 0, j = 0; i < newDims.Length; i++)
+            {
+                newDims[i] = (i == actualAxis) ? 1 : _shape.Dimensions[j++];
+            }
+
+            return Reshape(newDims); // shares CudaAllocation – zero copy
+        }
+
+        // =================================================================================
+        // TOP-K (structured for maximum efficiency)
+        // Currently falls back to CPU only because a full native segmented Top-K
+        // kernel is non-trivial. The structure below is ready for a native
+        // CUDA implementation (CUB / bitonic / heap) with zero host traffic.
+        // =================================================================================
+        // =================================================================================
+        // TOP-K  – NATIVE CUDA (zero host traffic)
+        // =================================================================================
+        public (ITensor values, ITensor indices) TopK(int k, int axis = -1)
+        {
+            if (k <= 0)
+                throw new ArgumentOutOfRangeException(nameof(k));
+
+            int normAxis = axis < 0 ? _shape.Rank + axis : axis;
+            if (normAxis < 0 || normAxis >= _shape.Rank)
+                throw new ArgumentOutOfRangeException(nameof(axis));
+
+            int dim = _shape[normAxis];
+            if (k > dim)
+                throw new ArgumentOutOfRangeException(nameof(k), "k cannot be larger than the size of the axis.");
+
+            // outer / inner calculation (same pattern used by ArgMax / Mean etc.)
+            int outer = 1;
+            for (int i = 0; i < normAxis; i++) outer *= _shape[i];
+            int inner = 1;
+            for (int i = normAxis + 1; i < _shape.Rank; i++) inner *= _shape[i];
+
+            // Output shape: original with the reduced axis replaced by k
+            int[] outDims = (int[])_shape.Dimensions.Clone();
+            outDims[normAxis] = k;
+            var outShape = new TensorShape(outDims);
+
+            var valuesBackend = new CudaBackend(outShape, _requiresGrad, _device) { Inputs = new[] { this } };
+            var indicesBackend = new CudaBackend(outShape, false, _device);
+
+            // Pure device execution – zero host traffic
+            CUDA.NativeTopK(
+                _allocation.Ptr,
+                valuesBackend.DevicePointer,
+                indicesBackend.DevicePointer,
+                outer, dim, inner, k);
+
+            // Autograd: scatter gradients back to original positions (also pure device)
+            if (_requiresGrad)
+            {
+                var capturedSelf = this;
+                var capturedIndices = indicesBackend;
+                var capturedOuter = outer;
+                var capturedDim = dim;
+                var capturedInner = inner;
+                var capturedK = k;
+                var originalShape = _shape.Clone();
+
+                valuesBackend.GradFn = gradOutput =>
+                {
+                    var gradIn = new CudaBackend(originalShape, false, capturedSelf._device);
+                    CUDA.CudaMemset(gradIn.DevicePointer, 0,
+                        (ulong)originalShape.TotalElements * sizeof(float));
+
+                    var go = Tensor.Unwrap(gradOutput) as CudaBackend
+                        ?? throw new InvalidOperationException("Gradient must be on CUDA.");
+
+                    CUDA.NativeTopKScatterGrad(
+                        go.DevicePointer,
+                        capturedIndices.DevicePointer,
+                        gradIn.DevicePointer,
+                        capturedOuter, capturedDim, capturedInner, capturedK);
+
+                    capturedSelf.AccumulateGrad(gradIn);
+                    return gradOutput;
+                };
+            }
+
+            return (new Tensor(valuesBackend), new Tensor(indicesBackend));
+        }
+
+
+        private void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                // Unmanaged resource release via reference counting
+                _allocation?.Release();
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_lock) { Dispose(true); }
+            GC.SuppressFinalize(this);
+        }
+
+        ~CudaBackend() => Dispose(false);
     }
 }
