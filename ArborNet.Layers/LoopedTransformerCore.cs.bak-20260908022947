@@ -1,0 +1,172 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+namespace ArborNet.Models
+{
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Activations;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Layers;
+    using ArborNet.Core.Tensors;
+
+    public interface IRecurrentLayer
+    {
+        int RecurrenceLoops { get; set; }
+        int MaxLoops { get; }
+        ITensor ForwardRecurrent(ITensor input, int loops);
+    }
+
+    public class LoopedTransformerCore : BaseLayer, IRecurrentLayer
+    {
+        private readonly int _hiddenDim;
+        private readonly int _intermediateDim;
+        private readonly float _eps = 1e-5f;
+        private readonly float _varMax = 1e4f;
+
+        // Learnable weight tensors
+        private ITensor _wQkv;
+        private ITensor _wProj;
+        private ITensor _wFfn1;
+        private ITensor _wFfn2;
+        private ITensor _ln1Gamma;
+        private ITensor _ln1Beta;
+        private ITensor _ln2Gamma;
+        private ITensor _ln2Beta;
+
+        public int RecurrenceLoops { get; set; }
+        public int MaxLoops { get; }
+
+        public LoopedTransformerCore(int hiddenDim, int intermediateDim, int recurrenceLoops = 8, int maxLoops = 16)
+        {
+            _hiddenDim = hiddenDim;
+            _intermediateDim = intermediateDim;
+            RecurrenceLoops = recurrenceLoops;
+            MaxLoops = maxLoops;
+
+            // Parameterized attention & feedforward components
+            _wQkv = Tensor.Randn(new TensorShape(hiddenDim, hiddenDim * 3), Device.CPU).Multiply(0.02f);
+            _wQkv.RequiresGrad = true;
+
+            _wProj = Tensor.Randn(new TensorShape(hiddenDim, hiddenDim), Device.CPU).Multiply(0.02f);
+            _wProj.RequiresGrad = true;
+
+            _wFfn1 = Tensor.Randn(new TensorShape(hiddenDim, intermediateDim), Device.CPU).Multiply(0.02f);
+            _wFfn1.RequiresGrad = true;
+
+            _wFfn2 = Tensor.Randn(new TensorShape(intermediateDim, hiddenDim), Device.CPU).Multiply(0.02f);
+            _wFfn2.RequiresGrad = true;
+
+            _ln1Gamma = Tensor.Ones(new TensorShape(hiddenDim), Device.CPU);
+            _ln1Gamma.RequiresGrad = true;
+
+            _ln1Beta = Tensor.Zeros(new TensorShape(hiddenDim), Device.CPU);
+            _ln1Beta.RequiresGrad = true;
+
+            _ln2Gamma = Tensor.Ones(new TensorShape(hiddenDim), Device.CPU);
+            _ln2Gamma.RequiresGrad = true;
+
+            _ln2Beta = Tensor.Zeros(new TensorShape(hiddenDim), Device.CPU);
+            _ln2Beta.RequiresGrad = true;
+        }
+
+        public override IEnumerable<ITensor> Parameters()
+        {
+            yield return _wQkv;
+            yield return _wProj;
+            yield return _wFfn1;
+            yield return _wFfn2;
+            yield return _ln1Gamma;
+            yield return _ln1Beta;
+            yield return _ln2Gamma;
+            yield return _ln2Beta;
+        }
+
+        public override ITensor Forward(ITensor input)
+        {
+            return ForwardRecurrent(input, RecurrenceLoops);
+        }
+
+        public ITensor ForwardRecurrent(ITensor input, int loops)
+        {
+            if (loops <= 0 || loops > MaxLoops)
+            {
+                throw new ArgumentOutOfRangeException(nameof(loops), $"Loops {loops} must be in range [1, {MaxLoops}].");
+            }
+
+            ITensor current = input;
+            float residualScale = 1.0f / MathF.Sqrt(loops);
+
+            for (int step = 0; step < loops; step++)
+            {
+                // Sub-layer 1: Self-Attention with normalized residual
+                ITensor norm1 = Normalize(current, _ln1Gamma, _ln1Beta);
+                ITensor qkv = norm1.MatMul(_wQkv);
+                ITensor attnOut = ApplyAttention(qkv, _hiddenDim);
+                ITensor projOut = attnOut.MatMul(_wProj);
+                current = current.Add(projOut.Multiply(residualScale));
+
+                // Sub-layer 2: Feedforward with normalized residual
+                ITensor norm2 = Normalize(current, _ln2Gamma, _ln2Beta);
+                ITensor hidden = new Gelu().Forward(norm2.MatMul(_wFfn1));
+                ITensor ffnOut = hidden.MatMul(_wFfn2);
+                current = current.Add(ffnOut.Multiply(residualScale));
+            }
+
+            return current;
+        }
+
+        private ITensor Normalize(ITensor x, ITensor gamma, ITensor beta)
+        {
+            ITensor mean = x.Mean(axis: -1, keepDims: true);
+            ITensor diff = x.Subtract(mean);
+            ITensor variance = diff.Multiply(diff).Mean(axis: -1, keepDims: true);
+            ITensor clampedVar = variance.Clip(_eps, _varMax);
+            ITensor rstd = clampedVar.Sqrt();
+            ITensor norm = diff.Divide(rstd);
+            return norm.Multiply(gamma).Add(beta);
+        }
+
+        private ITensor ApplyAttention(ITensor qkv, int hiddenDim)
+        {
+            int rank = qkv.Shape.Rank;
+            var slicesQ = new (int start, int end, int step)[rank];
+            var slicesK = new (int start, int end, int step)[rank];
+            var slicesV = new (int start, int end, int step)[rank];
+
+            for (int i = 0; i < rank - 1; i++)
+            {
+                slicesQ[i] = (0, qkv.Shape[i], 1);
+                slicesK[i] = (0, qkv.Shape[i], 1);
+                slicesV[i] = (0, qkv.Shape[i], 1);
+            }
+
+            slicesQ[rank - 1] = (0, hiddenDim, 1);
+            slicesK[rank - 1] = (hiddenDim, 2 * hiddenDim, 1);
+            slicesV[rank - 1] = (2 * hiddenDim, 3 * hiddenDim, 1);
+
+            ITensor q = qkv.Slice(slicesQ);
+            ITensor k = qkv.Slice(slicesK);
+            ITensor v = qkv.Slice(slicesV);
+
+            float scale = 1.0f / MathF.Sqrt(hiddenDim);
+
+            // Permute the last two dimensions for k transpose: [..., M, N] -> [..., N, M]
+            int[] perm = new int[rank];
+            for (int i = 0; i < rank; i++) perm[i] = i;
+            perm[rank - 1] = rank - 2;
+            perm[rank - 2] = rank - 1;
+
+            ITensor kT = k.Transpose(perm);
+            ITensor scores = q.MatMul(kT).Multiply(scale);
+            ITensor weights = scores.Softmax(axis: -1);
+            return weights.MatMul(v);
+        }
+    }
+}

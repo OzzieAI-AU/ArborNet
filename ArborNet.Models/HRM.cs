@@ -109,7 +109,7 @@ namespace ArborNet.Models
             _haltThreshold = haltThreshold;
 
             device ??= Device.CPU;
-            this.currentDevice = device;
+            this.device = device;
 
             // Initialize Embeddings
             _tokenEmbedding = new Embedding(vocabSize, dModel);

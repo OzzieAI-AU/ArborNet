@@ -1,0 +1,37 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Core.Interfaces
+{
+    using ArborNet.Core.Tensors;
+
+    /// <summary>
+    /// Defines the contract for neural network components that execute parameter-shared depth recurrence.
+    /// </summary>
+    public interface IRecurrentLayer
+    {
+        /// <summary>
+        /// Gets or sets the default number of recurrence loops executed during forward evaluation.
+        /// </summary>
+        int DefaultLoops { get; set; }
+
+        /// <summary>
+        /// Gets the maximum allowed recurrence iterations to guarantee gradient tape and memory safety.
+        /// </summary>
+        int MaxLoops { get; }
+
+        /// <summary>
+        /// Executes forward propagation across the recurrent core with explicit iteration control.
+        /// </summary>
+        /// <param name="input">The input activation tensor.</param>
+        /// <param name="loops">Optional explicit loop override. Constrained to [1, MaxLoops].</param>
+        /// <returns>The resulting output activation tensor after recurrent transformations.</returns>
+        ITensor Forward(ITensor input, int? loops = null);
+    }
+}

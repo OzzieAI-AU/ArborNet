@@ -42,6 +42,7 @@ namespace ArborNet.Core.Layers
 
     public abstract class BaseLayer : ILayer
     {
+        
         /// <summary>
         /// Backing field indicating whether the layer is currently operating in training mode (<c>true</c>) or evaluation mode (<c>false</c>).
         /// </summary>
@@ -51,6 +52,7 @@ namespace ArborNet.Core.Layers
         /// Backing field tracking the target execution <see cref="Device"/> (e.g., CPU, GPU) on which the layer's computations and parameters reside.
         /// </summary>
         protected Device device = Device.CPU;
+
         /// <summary>
         /// Executes the forward pass computation of the layer, processing the input tensor to generate an output tensor.
         /// </summary>
@@ -59,8 +61,8 @@ namespace ArborNet.Core.Layers
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the dimensions or shape of the <paramref name="input"/> do not match the expected layer specifications.</exception>
         /// <exception cref="InvalidOperationException">Thrown if there is a device mismatch between the layer and the input tensor.</exception>
-
         public abstract ITensor Forward(ITensor input);
+
         /// <summary>
         /// Enumerates all trainable parameters, such as weights and biases, directly associated with this layer.
         /// </summary>
@@ -68,8 +70,8 @@ namespace ArborNet.Core.Layers
         /// <remarks>
         /// Optimizers iterate over this collection to apply gradient updates to the underlying weight tensors during backpropagation.
         /// </remarks>
-
         public abstract IEnumerable<ITensor> Parameters();
+
         /// <summary>
         /// Sets the layer and all its nested sub-layers to training mode.
         /// </summary>
@@ -77,32 +79,32 @@ namespace ArborNet.Core.Layers
         /// This toggles internal state flags that alter the behavior of layers like Dropout or Batch Normalization 
         /// to enable active learning dynamics, parameter updates, and gradient accumulation.
         /// </remarks>
-
         public virtual void Train() => isTraining = true;
+
         /// <summary>
         /// Sets the layer and all its nested sub-layers to evaluation (inference) mode.
         /// </summary>
         /// <remarks>
         /// This disables training-specific operations, freezing running statistics for normalization and disabling stochastic elements like dropout.
         /// </remarks>
-
         public virtual void Eval() => isTraining = false;
+
         /// <summary>
         /// Gets a value indicating whether the layer is currently configured for training.
         /// </summary>
         /// <value>
         /// <c>true</c> if the layer is in training mode; otherwise, <c>false</c>.
         /// </value>
-
         public bool IsTraining => isTraining;
+
         /// <summary>
         /// Gets the execution device where the layer's parameters and computations are currently hosted.
         /// </summary>
         /// <value>
         /// The <see cref="Device"/> where computations are scheduled to run.
         /// </value>
-
         public Device CurrentDevice => device;
+
         /// <summary>
         /// Recursively transfers the layer, its nested sub-layers, and all its parameter tensors to the specified target execution device.
         /// </summary>
@@ -118,55 +120,47 @@ namespace ArborNet.Core.Layers
         /// model initialization phase rather than inside hot paths or training loops.
         /// </para>
         /// </remarks>
-
         public virtual void To(Device targetDevice)
         {
             device = targetDevice ?? Device.CPU;
 
-            // Use reflection to locate all ITensor and ILayer fields within the class
-            var fields = this.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            var fields = this.GetType().GetFields(flags);
+
             foreach (var field in fields)
             {
-                // Move any direct ITensor parameters (weights, biases) to the target device
-                if (typeof(ITensor).IsAssignableFrom(field.FieldType))
+                var value = field.GetValue(this);
+                if (value == null) continue;
+
+                // 1. Direct ITensor migration
+                if (value is ITensor tensor)
                 {
-                    var tensor = (ITensor?)field.GetValue(this);
-                    if (tensor != null)
-                    {
-                        field.SetValue(this, tensor.To(device));
-                    }
+                    field.SetValue(this, tensor.To(device));
                 }
-                // Recursively migrate any sub-layers
-                else if (typeof(ILayer).IsAssignableFrom(field.FieldType))
+                // 2. Direct Sub-layer migration
+                else if (value is BaseLayer baseSubLayer)
                 {
-                    var subLayer = (ILayer?)field.GetValue(this);
-                    if (subLayer is BaseLayer baseSubLayer)
-                    {
-                        baseSubLayer.To(device);
-                    }
+                    baseSubLayer.To(device);
                 }
-                // Handle collections of sub-layers (e.g., List<TransformerBlock>)
-                else if (typeof(System.Collections.IEnumerable).IsAssignableFrom(field.FieldType) && field.FieldType.IsGenericType)
+                // 3. Collections (Lists, Arrays) of Tensors or Layers
+                else if (value is System.Collections.IList list)
                 {
-                    var collection = field.GetValue(this) as System.Collections.IEnumerable;
-                    if (collection != null)
+                    for (int i = 0; i < list.Count; i++)
                     {
-                        foreach (var item in collection)
+                        var item = list[i];
+                        if (item is BaseLayer bl)
                         {
-                            if (item is BaseLayer baseSubLayer)
-                            {
-                                baseSubLayer.To(device);
-                            }
-                            else if (item is ITensor tensor)
-                            {
-                                // If the collection elements are modifiable, they should be migrated
-                                // Note: For lists/arrays, a copy-back or in-place update is required.
-                            }
+                            bl.To(device);
+                        }
+                        else if (item is ITensor t)
+                        {
+                            list[i] = t.To(device); // Fixed: writes back migrated tensor to collection
                         }
                     }
                 }
             }
         }
+
         /// <summary>
         /// Verifies that the incoming tensor conforms to expected invariants, validating reference integrity, structural rank, and device alignment.
         /// </summary>
@@ -175,7 +169,6 @@ namespace ArborNet.Core.Layers
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="input"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when <paramref name="expectedRank"/> is positive and does not match the actual rank of <paramref name="input"/>.</exception>
         /// <exception cref="InvalidOperationException">Thrown when a device placement conflict occurs between this layer and the input tensor.</exception>
-
         protected void ValidateInput(ITensor input, int expectedRank = -1)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));

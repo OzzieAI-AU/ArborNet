@@ -1,0 +1,50 @@
+namespace ArborNet.Layers
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+
+    public sealed class LoopedTransformerCore : ILayer
+    {
+        private readonly IReadOnlyList<ILayer> _blocks;
+        public int DefaultLoops { get; set; } = 4;
+        public int MaxLoops { get; set; } = 16;
+
+        public LoopedTransformerCore(IEnumerable<ILayer> blocks)
+        {
+            _blocks = (blocks ?? throw new ArgumentNullException(nameof(blocks))).ToList();
+        }
+
+        public IEnumerable<ITensor> Parameters()
+        {
+            foreach (var b in _blocks)
+            {
+                foreach (var p in b.Parameters())
+                {
+                    yield return p; // once — never × R
+                }
+            }
+        }
+
+        public ITensor Forward(ITensor x)
+        {
+            bool isTraining = false;
+            return Forward(x, DefaultLoops, isTraining);
+        }
+
+        public ITensor Forward(ITensor x, int nLoops, bool isTraining = false)
+        {
+            nLoops = Math.Clamp(nLoops, 1, MaxLoops);
+            for (int r = 0; r < nLoops; r++)
+            {
+                foreach (var block in _blocks)
+                {
+                    x = block.Forward(x);
+                }
+            }
+            return x;
+        }
+    }
+}

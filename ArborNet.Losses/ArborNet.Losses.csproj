@@ -13,6 +13,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="LoopStableCrossEntropyLoss.cs" />
+    <Compile Include="LoopStableCrossEntropy.cs" />
     <Compile Include="BaseLoss.cs" />
     <Compile Include="BinaryCrossEntropy.cs" />
     <Compile Include="CrossEntropy.cs" />

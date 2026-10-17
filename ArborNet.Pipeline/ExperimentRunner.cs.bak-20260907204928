@@ -1,0 +1,19 @@
+namespace ArborNet.Pipeline
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
+    public sealed class ExperimentRunner
+    {
+        public sealed record Metrics(double TrainLoss, double EvalLoss, double ParamsM, int NLoops, double WallSec);
+        public Metrics Run(RecurrentDepthTransformer model, int nLoops, int steps)
+        {
+            model.Train();
+            // ... optimizer step with LoopStableCrossEntropy ...
+            model.Eval();
+            // ... eval loss ...
+            return new Metrics(0, 0, model.Parameters().Count() / 1e6, nLoops, 0);
+        }
+    }
+}

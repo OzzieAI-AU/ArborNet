@@ -1,0 +1,188 @@
+using System;
+
+namespace ArborNet.Layers
+{
+    public sealed class CodeAwareSlice
+    {
+        public const int PadId = 0;
+        public const int BosId = 1;
+        public const int EosId = 2;
+        public const int NewlineId = 3;
+        public const int IndentId = 4;
+        public const int DedentId = 5;
+        public const int SemiId = 6;
+        public const int LBraceId = 7;
+        public const int RBraceId = 8;
+
+        private readonly int _window;
+        private readonly int _minSpan;
+        private readonly int _vocab;
+        private readonly int _holdEvery;
+
+        public int Window { get { return _window; } }
+        public int MinSpan { get { return _minSpan; } }
+        public int Vocab { get { return _vocab; } }
+        public int HoldEvery { get { return _holdEvery; } }
+
+        public CodeAwareSlice(int window, int minSpan, int vocab, int holdEvery)
+        {
+            if (window < 2) throw new ArgumentOutOfRangeException("window");
+            if (minSpan < 1 || minSpan > window) throw new ArgumentOutOfRangeException("minSpan");
+            if (vocab < 16) throw new ArgumentOutOfRangeException("vocab");
+            if (holdEvery < 2) throw new ArgumentOutOfRangeException("holdEvery");
+            _window = window;
+            _minSpan = minSpan;
+            _vocab = vocab;
+            _holdEvery = holdEvery;
+        }
+
+        public static CodeAwareSlice Control()
+        {
+            return new CodeAwareSlice(64, 8, 4096, 8);
+        }
+
+        public static int BoundaryScore(int tokenId)
+        {
+            if (tokenId == EosId || tokenId == RBraceId || tokenId == DedentId) return 4;
+            if (tokenId == NewlineId || tokenId == SemiId) return 3;
+            if (tokenId == LBraceId || tokenId == IndentId || tokenId == BosId) return 2;
+            if (tokenId < 0) return 0;
+            int band = tokenId & 15;
+            if (band == 10 || band == 13) return 1;
+            return 0;
+        }
+
+        public bool IsHeldOut(int sliceIndex)
+        {
+            if (sliceIndex < 0) return false;
+            return (sliceIndex % _holdEvery) == (_holdEvery - 1);
+        }
+
+        public int Plan(int[] tokens, int[] starts, int[] ends, float[] weights, byte[] heldOut)
+        {
+            if (tokens == null) throw new ArgumentNullException("tokens");
+            if (starts == null) throw new ArgumentNullException("starts");
+            if (ends == null) throw new ArgumentNullException("ends");
+            if (weights == null) throw new ArgumentNullException("weights");
+            if (heldOut == null) throw new ArgumentNullException("heldOut");
+
+            int n = tokens.Length;
+            if (n == 0) return 0;
+
+            int count = 0;
+            int origin = 0;
+            int cap = starts.Length;
+            if (ends.Length < cap) cap = ends.Length;
+            if (weights.Length < cap) cap = weights.Length;
+            if (heldOut.Length < cap) cap = heldOut.Length;
+
+            while (origin < n && count < cap)
+            {
+                int limit = origin + _window;
+                if (limit > n) limit = n;
+                int cut = limit;
+                if (limit < n)
+                {
+                    int best = -1;
+                    int bestScore = 0;
+                    int from = origin + _minSpan;
+                    for (int i = from; i < limit; i++)
+                    {
+                        int id = tokens[i];
+                        if ((uint)id >= (uint)_vocab) id = PadId;
+                        int score = BoundaryScore(id);
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            best = i + 1;
+                        }
+                    }
+                    if (best > origin) cut = best;
+                }
+
+                if (cut <= origin) break;
+
+                float coh = 0f;
+                int len = cut - origin;
+                for (int i = origin; i < cut; i++)
+                {
+                    int id = tokens[i];
+                    if ((uint)id >= (uint)_vocab) continue;
+                    coh += BoundaryScore(id);
+                }
+
+                float w = 0.5f + (0.5f * (coh / (4f * len)));
+                if (w < 0.5f) w = 0.5f;
+                if (w > 1.5f) w = 1.5f;
+
+                starts[count] = origin;
+                ends[count] = cut;
+                weights[count] = w;
+                heldOut[count] = IsHeldOut(count) ? (byte)1 : (byte)0;
+                count++;
+                origin = cut;
+            }
+
+            return count;
+        }
+
+        public int FillTokenWeights(int[] tokens, int[] starts, int[] ends, float[] sliceWeights, byte[] heldOut, int count, float[] tokenWeights, bool trainProtocol)
+        {
+            if (tokens == null) throw new ArgumentNullException("tokens");
+            if (starts == null) throw new ArgumentNullException("starts");
+            if (ends == null) throw new ArgumentNullException("ends");
+            if (sliceWeights == null) throw new ArgumentNullException("sliceWeights");
+            if (heldOut == null) throw new ArgumentNullException("heldOut");
+            if (tokenWeights == null) throw new ArgumentNullException("tokenWeights");
+            if (count < 0) throw new ArgumentOutOfRangeException("count");
+            if (tokenWeights.Length < tokens.Length) throw new ArgumentException("tokenWeights");
+
+            for (int i = 0; i < tokens.Length; i++) tokenWeights[i] = 0f;
+
+            int m = count;
+            if (m > starts.Length) m = starts.Length;
+            if (m > ends.Length) m = ends.Length;
+            if (m > sliceWeights.Length) m = sliceWeights.Length;
+            if (m > heldOut.Length) m = heldOut.Length;
+
+            int used = 0;
+            for (int s = 0; s < m; s++)
+            {
+                bool drop = trainProtocol && heldOut[s] != 0;
+                float w = drop ? 0f : sliceWeights[s];
+                int a = starts[s];
+                int b = ends[s];
+                if (a < 0) a = 0;
+                if (b > tokens.Length) b = tokens.Length;
+                if (a > b) continue;
+                for (int i = a; i < b; i++) tokenWeights[i] = w;
+                if (!drop) used++;
+            }
+
+            return used;
+        }
+
+        public float MeanWeight(float[] weights, byte[] heldOut, int count, bool heldOutOnly)
+        {
+            if (weights == null) throw new ArgumentNullException("weights");
+            if (count < 0) throw new ArgumentOutOfRangeException("count");
+            if (heldOutOnly && heldOut == null) throw new ArgumentNullException("heldOut");
+
+            int m = count;
+            if (m > weights.Length) m = weights.Length;
+            if (heldOutOnly && heldOut.Length < m) m = heldOut.Length;
+
+            double sum = 0.0;
+            int n = 0;
+            for (int i = 0; i < m; i++)
+            {
+                if (heldOutOnly && heldOut[i] == 0) continue;
+                sum += weights[i];
+                n++;
+            }
+
+            if (n == 0) return 0f;
+            return (float)(sum / n);
+        }
+    }
+}

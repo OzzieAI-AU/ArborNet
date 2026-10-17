@@ -1,17 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
-    <ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
-    <ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
-    <ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
-    <ProjectReference Include="..\ArborNet.Optimizers\ArborNet.Optimizers.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+		<ProjectReference Include="..\ArborNet.Layers\ArborNet.Layers.csproj" />
+		<ProjectReference Include="..\ArborNet.Losses\ArborNet.Losses.csproj" />
+		<ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
+		<ProjectReference Include="..\ArborNet.Optimizers\ArborNet.Optimizers.csproj" />
+	</ItemGroup>
 
 </Project>

@@ -1,0 +1,16 @@
+public static class LoopCheckpoint
+{
+    // Rematerialize core segments during Backward instead of storing every inner activation.
+    public static Tensor Forward(LoopedTransformerCore core, Tensor x, int nLoops, int checkpointEvery)
+    {
+        checkpointEvery = Math.Max(1, checkpointEvery);
+        for (int r = 0; r < nLoops; r++)
+        {
+            if (r % checkpointEvery == 0)
+                x = GradientTape.RecordClosure(() => core.Forward(x, 1)); // boundary
+            else
+                x = core.Forward(x, 1);
+        }
+        return x;
+    }
+}

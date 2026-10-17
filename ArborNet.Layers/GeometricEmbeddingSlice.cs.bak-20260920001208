@@ -1,0 +1,234 @@
+using System;
+
+namespace ArborNet.Layers
+{
+    /// <summary>
+    /// Geometric embedding slice implementing Poincaré ball operations and Lorentz metric projections
+    /// for hierarchical and symbolic graph representation learning in ArborNet.
+    /// </summary>
+    public sealed class GeometricEmbeddingSlice
+    {
+        private readonly int _dim;
+        private readonly float _curvature;
+        private readonly float _eps;
+        private readonly float[] _embeddingWeights;
+        private readonly int _vocabSize;
+
+        public int Dimension => _dim;
+        public float Curvature => _curvature;
+        public int VocabSize => _vocabSize;
+
+        public GeometricEmbeddingSlice(int vocabSize, int dim, float curvature = 1.0f, float eps = 1e-5f, int seed = 42)
+        {
+            if (vocabSize <= 0) throw new ArgumentOutOfRangeException(nameof(vocabSize));
+            if (dim <= 0) throw new ArgumentOutOfRangeException(nameof(dim));
+            if (curvature <= 0f) throw new ArgumentOutOfRangeException(nameof(curvature));
+
+            _vocabSize = vocabSize;
+            _dim = dim;
+            _curvature = curvature;
+            _eps = eps;
+
+            _embeddingWeights = new float[vocabSize * dim];
+            InitializeWeights(seed);
+        }
+
+        private void InitializeWeights(int seed)
+        {
+            Random rng = new Random(seed);
+            float scale = 0.01f / MathF.Sqrt(_dim);
+
+            for (int i = 0; i < _vocabSize; i++)
+            {
+                int offset = i * _dim;
+                float normSq = 0f;
+                for (int d = 0; d < _dim; d++)
+                {
+                    float val = (float)(rng.NextDouble() * 2.0 - 1.0) * scale;
+                    _embeddingWeights[offset + d] = val;
+                    normSq += val * val;
+                }
+
+                float maxNorm = 1.0f / MathF.Sqrt(_curvature) - _eps;
+                float norm = MathF.Sqrt(normSq);
+                if (norm > maxNorm && norm > 1e-12f)
+                {
+                    float factor = maxNorm / norm;
+                    for (int d = 0; d < _dim; d++)
+                    {
+                        _embeddingWeights[offset + d] *= factor;
+                    }
+                }
+            }
+        }
+
+        public void Embed(ReadOnlySpan<int> tokenIds, Span<float> outputEmbeddings)
+        {
+            int numTokens = tokenIds.Length;
+            if (outputEmbeddings.Length < numTokens * _dim)
+            {
+                throw new ArgumentException("Output buffer too small.", nameof(outputEmbeddings));
+            }
+
+            for (int t = 0; t < numTokens; t++)
+            {
+                int token = tokenIds[t];
+                if (token < 0 || token >= _vocabSize)
+                {
+                    token = 0;
+                }
+
+                int srcOffset = token * _dim;
+                int dstOffset = t * _dim;
+                _embeddingWeights.AsSpan(srcOffset, _dim).CopyTo(outputEmbeddings.Slice(dstOffset, _dim));
+            }
+        }
+
+        public void ExpMapZero(ReadOnlySpan<float> tangentVec, Span<float> poincareVec)
+        {
+            float norm = 0f;
+            for (int d = 0; d < _dim; d++)
+            {
+                norm += tangentVec[d] * tangentVec[d];
+            }
+            norm = MathF.Sqrt(norm);
+
+            float sqrtC = MathF.Sqrt(_curvature);
+            float factor;
+            if (norm < 1e-7f)
+            {
+                factor = 1.0f;
+            }
+            else
+            {
+                factor = MathF.Tanh(sqrtC * norm) / (sqrtC * norm);
+            }
+
+            for (int d = 0; d < _dim; d++)
+            {
+                poincareVec[d] = ProjectToBall(tangentVec[d] * factor);
+            }
+        }
+
+        public void LogMapZero(ReadOnlySpan<float> poincareVec, Span<float> tangentVec)
+        {
+            float norm = 0f;
+            for (int d = 0; d < _dim; d++)
+            {
+                norm += poincareVec[d] * poincareVec[d];
+            }
+            norm = MathF.Sqrt(norm);
+
+            float sqrtC = MathF.Sqrt(_curvature);
+            float factor;
+            if (norm < 1e-7f)
+            {
+                factor = 1.0f;
+            }
+            else
+            {
+                float clamped = Math.Clamp(sqrtC * norm, 0f, 1f - _eps);
+                factor = MathF.Atanh(clamped) / (sqrtC * norm);
+            }
+
+            for (int d = 0; d < _dim; d++)
+            {
+                tangentVec[d] = poincareVec[d] * factor;
+            }
+        }
+
+        public float HyperbolicDistance(ReadOnlySpan<float> u, ReadOnlySpan<float> v)
+        {
+            float uNormSq = 0f;
+            float vNormSq = 0f;
+            float diffNormSq = 0f;
+
+            for (int d = 0; d < _dim; d++)
+            {
+                float ud = u[d];
+                float vd = v[d];
+                float diff = ud - vd;
+
+                uNormSq += ud * ud;
+                vNormSq += vd * vd;
+                diffNormSq += diff * diff;
+            }
+
+            float c = _curvature;
+            float alpha = 1.0f - c * uNormSq;
+            float beta = 1.0f - c * vNormSq;
+
+            if (alpha < _eps) alpha = _eps;
+            if (beta < _eps) beta = _eps;
+
+            float denom = alpha * beta;
+            float inner = 1.0f + 2.0f * c * diffNormSq / denom;
+
+            if (inner < 1.0f) inner = 1.0f;
+
+            float acosh = MathF.Log(inner + MathF.Sqrt(MathF.Max(0f, inner * inner - 1.0f)));
+            return acosh / MathF.Sqrt(c);
+        }
+
+        public void MobiusAddition(ReadOnlySpan<float> u, ReadOnlySpan<float> v, Span<float> result)
+        {
+            float uNormSq = 0f;
+            float vNormSq = 0f;
+            float uvInner = 0f;
+
+            for (int d = 0; d < _dim; d++)
+            {
+                float ud = u[d];
+                float vd = v[d];
+                uNormSq += ud * ud;
+                vNormSq += vd * vd;
+                uvInner += ud * vd;
+            }
+
+            float c = _curvature;
+            float denom = 1.0f + 2.0f * c * uvInner + c * c * uNormSq * vNormSq;
+            if (MathF.Abs(denom) < _eps) denom = _eps;
+
+            float alpha = 1.0f + 2.0f * c * uvInner + c * vNormSq;
+            float beta = 1.0f - c * uNormSq;
+
+            for (int d = 0; d < _dim; d++)
+            {
+                float num = alpha * u[d] + beta * v[d];
+                result[d] = ProjectToBall(num / denom);
+            }
+        }
+
+        public void LorentzProjection(ReadOnlySpan<float> poincareVec, Span<float> lorentzVec)
+        {
+            if (lorentzVec.Length < _dim + 1)
+            {
+                throw new ArgumentException("Lorentz coordinate requires dim + 1 components.", nameof(lorentzVec));
+            }
+
+            float normSq = 0f;
+            for (int d = 0; d < _dim; d++)
+            {
+                normSq += poincareVec[d] * poincareVec[d];
+            }
+
+            float c = _curvature;
+            float denom = 1.0f - c * normSq;
+            if (denom < _eps) denom = _eps;
+
+            lorentzVec[0] = (1.0f + c * normSq) / (MathF.Sqrt(c) * denom);
+
+            float factor = 2.0f / denom;
+            for (int d = 0; d < _dim; d++)
+            {
+                lorentzVec[d + 1] = poincareVec[d] * factor;
+            }
+        }
+
+        private float ProjectToBall(float x)
+        {
+            float maxVal = 1.0f / MathF.Sqrt(_curvature) - _eps;
+            return Math.Clamp(x, -maxVal, maxVal);
+        }
+    }
+}

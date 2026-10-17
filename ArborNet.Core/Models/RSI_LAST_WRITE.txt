@@ -1,0 +1,5 @@
+run=20260929_022317_20ff3a
+loop=3
+target=C:\Users\Jingl\Desktop\OzzieAI Code\ArborNet\ArborNet\ArborNet.Core\Models\BaseModel.cs
+utc=2026-09-29T03:21:59.3336822Z
+bytes=9831

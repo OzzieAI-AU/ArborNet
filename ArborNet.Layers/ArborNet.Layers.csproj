@@ -16,11 +16,29 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Attention\HeadSplitCheck.cs" />
+    <Compile Include="SelectionGap.cs" />
+    <Compile Include="LinearDefinitionHold.cs" />
+    <Compile Include="CodeAwareSlice.cs" />
+    <Compile Include="ScalarRmsNorm.cs" />
+    <Compile Include="Attention\FixedDHeadParity.cs" />
+    <Compile Include="PrimeLorentzianPositionalEncoding2D.cs" />
+    <Compile Include="SubquadraticAttention2D.cs" />
+    <Compile Include="PrimeGeometricBlock2D.cs" />
+    <Compile Include="GeometricEmbeddingSlice.cs" />
+    <Compile Include="CausalExponentialDecayPooler.cs" />
+    <Compile Include="KnowledgeDensityAuditor.cs" />
+    <Compile Include="MixedCurvatureEmbedding.cs" />
+    <Compile Include="ConformalHyperbolicMetric.cs" />
+    <Compile Include="LorentzianFractalEmbedding.cs" />
+    <Compile Include="AdelicHyperbolicEmbedding.cs" />
+    <Compile Include="LoopedTransformerCore.cs" />
     <Compile Include="AdvancedLayers.cs" />
     <Compile Include="Attention.cs" />
     <Compile Include="ActivationLayer.cs" />
     <Compile Include="AttentionResidualscConnection.cs" />
     <Compile Include="DeltacAttention.cs" />
+    <Compile Include="RmsNorm.cs" />
     <Compile Include="StableLatentcMoE.cs" />
     <Compile Include="SubquadraticAttentionOp.cs" />
     <Compile Include="FractalLinear.cs" />

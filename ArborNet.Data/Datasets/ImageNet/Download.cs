@@ -27,6 +27,9 @@ namespace ArborNet.Data.Datasets.ImageNet
     using SixLabors.ImageSharp;
     using SixLabors.ImageSharp.PixelFormats;
     using SixLabors.ImageSharp.Processing;
+
+    #endregion
+
     /// <summary>
     /// Provides utility methods for downloading, extracting, and preprocessing the ImageNet dataset into tensor representations.
     /// </summary>
@@ -34,9 +37,6 @@ namespace ArborNet.Data.Datasets.ImageNet
     /// Access to the official ImageNet download endpoints requires user registration and authentication at http://www.image-net.org/download-images.
     /// Before invoking the download methods, ensure <see cref="BaseUrl"/> is configured with valid, authenticated credentials.
     /// </remarks>
-
-    #endregion
-
     public class Download
     {
         /// <summary>

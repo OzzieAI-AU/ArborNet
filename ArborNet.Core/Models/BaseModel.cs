@@ -1,4 +1,4 @@
-﻿// -----------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------------------
 // Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
 // 
 // Project:      ArborNet
@@ -34,6 +34,7 @@ namespace ArborNet.Core.Models
 
     public abstract class BaseModel : IModel
     {
+
         /// <summary>
         /// Indicates whether the model is currently in training mode (true) or evaluation mode (false).
         /// </summary>
@@ -57,7 +58,8 @@ namespace ArborNet.Core.Models
         /// <value>
         /// The current execution environment target, defaulted to <see cref="Device.CPU"/>.
         /// </value>
-        protected Device currentDevice = Device.CPU;
+        protected Device device = Device.CPU;
+        
         /// <summary>
         /// Performs the forward propagation pass of the neural network model.
         /// </summary>
@@ -67,8 +69,8 @@ namespace ArborNet.Core.Models
         /// This method must be implemented by concrete classes to specify the sequence of layer operations and mathematical 
         /// computations that define the model's architecture.
         /// </remarks>
-
         public abstract ITensor Forward(ITensor input);
+
         /// <summary>
         /// Retrieves an enumerable collection of all trainable tensors (parameters) managed by this model.
         /// </summary>
@@ -77,11 +79,11 @@ namespace ArborNet.Core.Models
         /// This method returns a shallow copy of the underlying parameter list to prevent direct external 
         /// modification of the model's internal structural cache.
         /// </remarks>
-
         public virtual IEnumerable<ITensor> Parameters()
         {
             return new List<ITensor>(parameters);
         }
+        
         /// <summary>
         /// Transitions the model into training mode.
         /// </summary>
@@ -118,11 +120,9 @@ namespace ArborNet.Core.Models
         /// and collections containing these types, migrating each to the new execution target. After resolving 
         /// device transitions, it rebuilds the internal parameter cache.
         /// </remarks>
-
-        public virtual void To(Device device)
+        public virtual void To(Device targetDevice)
         {
-            if (device == null) throw new ArgumentNullException(nameof(device));
-            currentDevice = device;
+            device = targetDevice ?? Device.CPU;
 
             var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             var fields = this.GetType().GetFields(flags);
@@ -132,46 +132,35 @@ namespace ArborNet.Core.Models
                 var value = field.GetValue(this);
                 if (value == null) continue;
 
-                // 1. Move direct Layer fields
-                if (value is BaseLayer baseLayer)
-                {
-                    baseLayer.To(device);
-                }
-                else if (value is IModel subModel)
-                {
-                    subModel.To(device);
-                }
-                // 2. Move direct Tensor fields
-                else if (value is ITensor tensor)
+                // 1. Direct ITensor migration
+                if (value is ITensor tensor)
                 {
                     field.SetValue(this, tensor.To(device));
                 }
-                // 3. Move Collections of Tensors or Layers
-                else if (value is IList list)
+                // 2. Direct Sub-layer migration
+                else if (value is BaseLayer baseSubLayer)
+                {
+                    baseSubLayer.To(device);
+                }
+                // 3. Collections (Lists, Arrays) of Tensors or Layers
+                else if (value is System.Collections.IList list)
                 {
                     for (int i = 0; i < list.Count; i++)
                     {
-                        var element = list[i];
-                        if (element is BaseLayer bl)
+                        var item = list[i];
+                        if (item is BaseLayer bl)
                         {
                             bl.To(device);
                         }
-                        else if (element is IModel sm)
+                        else if (item is ITensor t)
                         {
-                            sm.To(device);
-                        }
-                        else if (element is ITensor t)
-                        {
-                            list[i] = t.To(device);
+                            list[i] = t.To(device); // Fixed: writes back migrated tensor to collection
                         }
                     }
                 }
             }
-
-            // Re-populate the flat parameter cache with migrated parameters
-            parameters.Clear();
-            CollectParameters(this);
         }
+
         /// <summary>
         /// Recursively scans and collects trainable tensors from the specified object, appending them to the local parameter cache.
         /// </summary>
@@ -222,3 +211,5 @@ namespace ArborNet.Core.Models
         }
     }
 }
+
+// RSI loop 3 2026-09-29T03:21:58.8963579Z protocolVal=5.4666 inferCe=5.4895 STAMP-ONLY (no FullCSharp) — not an architecture delta

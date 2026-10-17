@@ -1,0 +1,285 @@
+using System;
+
+namespace ArborNet.Layers
+{
+    /// <summary>
+    /// Poincaré Ball metric encoder and bi-Lipschitz distortion scorecard
+    /// for geometric-symbolic manifolds, syntax trees, and metric embeddings.
+    /// </summary>
+    public sealed class GeometricEmbeddingSlice
+    {
+        private const float DefaultCurvature = 1.0f;
+        private const float MaxNormBoundary = 0.9999f;
+        private const float Epsilon = 1e-7f;
+
+        private readonly int _vocabularySize;
+        private readonly int _dimension;
+        private readonly float _curvature;
+        private readonly float[] _embeddings;
+
+        public int VocabularySize => _vocabularySize;
+        public int Dimension => _dimension;
+        public float Curvature => _curvature;
+
+        public GeometricEmbeddingSlice(int vocabularySize, int dimension, float curvature = DefaultCurvature, int randomSeed = 42)
+        {
+            if (vocabularySize <= 0) throw new ArgumentOutOfRangeException(nameof(vocabularySize));
+            if (dimension <= 0) throw new ArgumentOutOfRangeException(nameof(dimension));
+            if (curvature <= 0.0f) throw new ArgumentOutOfRangeException(nameof(curvature));
+
+            _vocabularySize = vocabularySize;
+            _dimension = dimension;
+            _curvature = curvature;
+            _embeddings = new float[vocabularySize * dimension];
+
+            InitializeEmbeddings(randomSeed);
+        }
+
+        private void InitializeEmbeddings(int seed)
+        {
+            var rng = new Random(seed);
+            float maxR = 1.0f / MathF.Sqrt(_curvature) * 0.1f;
+
+            for (int i = 0; i < _vocabularySize; i++)
+            {
+                int offset = i * _dimension;
+                float normSq = 0f;
+
+                for (int d = 0; d < _dimension; d++)
+                {
+                    float u1 = MathF.Max((float)rng.NextDouble(), 1e-6f);
+                    float u2 = MathF.Max((float)rng.NextDouble(), 1e-6f);
+                    float normal = MathF.Sqrt(-2.0f * MathF.Log(u1)) * MathF.Cos(2.0f * MathF.PI * u2);
+                    _embeddings[offset + d] = normal;
+                    normSq += normal * normal;
+                }
+
+                float norm = MathF.Sqrt(normSq);
+                if (norm > Epsilon)
+                {
+                    float targetNorm = (float)rng.NextDouble() * maxR;
+                    float scale = targetNorm / norm;
+                    for (int d = 0; d < _dimension; d++)
+                    {
+                        _embeddings[offset + d] *= scale;
+                    }
+                }
+            }
+        }
+
+        public ReadOnlySpan<float> GetEmbedding(int index)
+        {
+            if ((uint)index >= (uint)_vocabularySize)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            return new ReadOnlySpan<float>(_embeddings, index * _dimension, _dimension);
+        }
+
+        public void SetEmbedding(int index, ReadOnlySpan<float> vector)
+        {
+            if ((uint)index >= (uint)_vocabularySize)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            if (vector.Length != _dimension)
+                throw new ArgumentException("Vector dimension mismatch.", nameof(vector));
+
+            int offset = index * _dimension;
+            for (int d = 0; d < _dimension; d++)
+            {
+                _embeddings[offset + d] = vector[d];
+            }
+            ProjectPoincareBall(index);
+        }
+
+        public void ProjectPoincareBall(int index)
+        {
+            int offset = index * _dimension;
+            float maxR = (1.0f / MathF.Sqrt(_curvature)) * MaxNormBoundary;
+
+            float normSq = 0f;
+            for (int d = 0; d < _dimension; d++)
+            {
+                float v = _embeddings[offset + d];
+                normSq += v * v;
+            }
+
+            float norm = MathF.Sqrt(normSq);
+            if (norm >= maxR)
+            {
+                float rescale = maxR / (norm + Epsilon);
+                for (int d = 0; d < _dimension; d++)
+                {
+                    _embeddings[offset + d] *= rescale;
+                }
+            }
+        }
+
+        public static float ExpMapZero(ReadOnlySpan<float> tangentVec, Span<float> outPoincare, float curvature = DefaultCurvature)
+        {
+            float normSq = 0f;
+            for (int d = 0; d < tangentVec.Length; d++)
+            {
+                normSq += tangentVec[d] * tangentVec[d];
+            }
+            float norm = MathF.Sqrt(normSq);
+            float sqrtC = MathF.Sqrt(curvature);
+
+            if (norm < Epsilon)
+            {
+                tangentVec.CopyTo(outPoincare);
+                return 0f;
+            }
+
+            float factor = MathF.Tanh(sqrtC * norm) / (sqrtC * norm);
+            for (int d = 0; d < tangentVec.Length; d++)
+            {
+                outPoincare[d] = tangentVec[d] * factor;
+            }
+
+            return norm;
+        }
+
+        public static float LogMapZero(ReadOnlySpan<float> poincareVec, Span<float> outTangent, float curvature = DefaultCurvature)
+        {
+            float normSq = 0f;
+            for (int d = 0; d < poincareVec.Length; d++)
+            {
+                normSq += poincareVec[d] * poincareVec[d];
+            }
+            float norm = MathF.Sqrt(normSq);
+            float sqrtC = MathF.Sqrt(curvature);
+            float maxNorm = (1.0f / sqrtC) * MaxNormBoundary;
+
+            if (norm >= maxNorm)
+            {
+                norm = maxNorm;
+            }
+
+            if (norm < Epsilon)
+            {
+                poincareVec.CopyTo(outTangent);
+                return 0f;
+            }
+
+            float arg = MathF.Min(sqrtC * norm, 1.0f - Epsilon);
+            float atanh = 0.5f * MathF.Log((1.0f + arg) / (1.0f - arg));
+            float factor = atanh / (sqrtC * norm);
+
+            for (int d = 0; d < poincareVec.Length; d++)
+            {
+                outTangent[d] = poincareVec[d] * factor;
+            }
+
+            return norm;
+        }
+
+        public float Distance(int uIndex, int vIndex)
+        {
+            if ((uint)uIndex >= (uint)_vocabularySize || (uint)vIndex >= (uint)_vocabularySize)
+                throw new ArgumentOutOfRangeException("Node indices out of range.");
+
+            int uOffset = uIndex * _dimension;
+            int vOffset = vIndex * _dimension;
+
+            return ComputePoincareDistance(
+                new ReadOnlySpan<float>(_embeddings, uOffset, _dimension),
+                new ReadOnlySpan<float>(_embeddings, vOffset, _dimension),
+                _curvature);
+        }
+
+        public static float ComputePoincareDistance(ReadOnlySpan<float> u, ReadOnlySpan<float> v, float curvature = DefaultCurvature)
+        {
+            float diffNormSq = 0f;
+            float uNormSq = 0f;
+            float vNormSq = 0f;
+
+            for (int d = 0; d < u.Length; d++)
+            {
+                float diff = u[d] - v[d];
+                diffNormSq += diff * diff;
+                uNormSq += u[d] * u[d];
+                vNormSq += v[d] * v[d];
+            }
+
+            float maxRadiusSq = (1.0f / curvature) * MaxNormBoundary * MaxNormBoundary;
+            uNormSq = MathF.Min(uNormSq, maxRadiusSq);
+            vNormSq = MathF.Min(vNormSq, maxRadiusSq);
+
+            float alpha = 1.0f - curvature * uNormSq;
+            float beta = 1.0f - curvature * vNormSq;
+            alpha = MathF.Max(alpha, Epsilon);
+            beta = MathF.Max(beta, Epsilon);
+
+            float delta = 2.0f * curvature * diffNormSq / (alpha * beta);
+            float gamma = 1.0f + delta;
+
+            float sqrtC = MathF.Sqrt(curvature);
+            float arcosh = MathF.Log(gamma + MathF.Sqrt(MathF.Max(gamma * gamma - 1.0f, 0.0f)));
+            return (1.0f / sqrtC) * arcosh;
+        }
+
+        public void RiemannianGradientStep(int index, ReadOnlySpan<float> euclideanGrad, float learningRate)
+        {
+            if ((uint)index >= (uint)_vocabularySize)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            if (euclideanGrad.Length != _dimension)
+                throw new ArgumentException("Gradient dimension mismatch.", nameof(euclideanGrad));
+
+            int offset = index * _dimension;
+
+            float normSq = 0f;
+            for (int d = 0; d < _dimension; d++)
+            {
+                float val = _embeddings[offset + d];
+                normSq += val * val;
+            }
+
+            float maxRadiusSq = (1.0f / _curvature) * MaxNormBoundary * MaxNormBoundary;
+            normSq = MathF.Min(normSq, maxRadiusSq);
+
+            float lambdaX = 2.0f / (1.0f - _curvature * normSq);
+            float riemannianMetricScalar = (lambdaX * lambdaX) / 4.0f;
+            float invMetric = 1.0f / MathF.Max(riemannianMetricScalar, Epsilon);
+
+            for (int d = 0; d < _dimension; d++)
+            {
+                float riemannianGrad = euclideanGrad[d] * invMetric;
+                _embeddings[offset + d] -= learningRate * riemannianGrad;
+            }
+
+            ProjectPoincareBall(index);
+        }
+
+        public static (float MeanDistortion, float MaxDistortion, float MeanAbsoluteError) ComputeMetricScorecard(
+            GeometricEmbeddingSlice slice,
+            ReadOnlySpan<(int U, int V, float TargetDist)> metricPairs)
+        {
+            if (metricPairs.IsEmpty)
+                return (1.0f, 1.0f, 0.0f);
+
+            float distortionSum = 0f;
+            float maxDistortion = 1.0f;
+            float maeSum = 0f;
+
+            for (int i = 0; i < metricPairs.Length; i++)
+            {
+                var pair = metricPairs[i];
+                float target = MathF.Max(pair.TargetDist, Epsilon);
+                float embedded = MathF.Max(slice.Distance(pair.U, pair.V), Epsilon);
+
+                float ratio = embedded / target;
+                float biLipschitz = MathF.Max(ratio, 1.0f / ratio);
+
+                distortionSum += biLipschitz;
+                if (biLipschitz > maxDistortion)
+                {
+                    maxDistortion = biLipschitz;
+                }
+
+                maeSum += MathF.Abs(embedded - target);
+            }
+
+            int count = metricPairs.Length;
+            return (distortionSum / count, maxDistortion, maeSum / count);
+        }
+    }
+}

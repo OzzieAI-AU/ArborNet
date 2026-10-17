@@ -1,0 +1,116 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+namespace ArborNet.Losses
+{
+    #region Using Statements
+    using System;
+    using System.Collections.Generic;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Tensors;
+    #endregion
+
+    /// <summary>
+    /// Cross-Entropy Loss customized for recurrent unrolled models.
+    /// Clamps logits to mitigate residual accumulation blowups across loops and enforces grad clipping.
+    /// </summary>
+    public class LoopStableCrossEntropy : ILoss
+    {
+        private readonly float _logitClipBound;
+        private readonly float _maxGradNorm;
+
+        public LoopStableCrossEntropy(float logitClipBound = 30.0f, float maxGradNorm = 1.0f)
+        {
+            _logitClipBound = logitClipBound;
+            _maxGradNorm = maxGradNorm;
+        }
+
+        public float MaxGradNorm => _maxGradNorm;
+
+        /// <summary>
+        /// Computes cross-entropy loss given raw logits [..., VocabSize] and target token indices [...].
+        /// </summary>
+        public ITensor Forward(ITensor predictions, ITensor targets, string reduction = "mean")
+        {
+            if (predictions == null) throw new ArgumentNullException(nameof(predictions));
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
+
+            // Stabilize logits within safe range [-logitClipBound, logitClipBound]
+            ITensor clampedLogits = predictions.Clip(-_logitClipBound, _logitClipBound);
+
+            int rank = clampedLogits.Shape.Rank;
+            int vocabSize = clampedLogits.Shape.Dimensions[rank - 1];
+            int totalTokens = clampedLogits.Shape.TotalElements / vocabSize;
+
+            // Flatten to [TotalTokens, VocabSize] and [TotalTokens] for 2D Gather compatibility
+            ITensor flatLogits = clampedLogits.Reshape(totalTokens, vocabSize);
+            ITensor flatTargets = targets.Reshape(totalTokens);
+
+            // Compute probabilities along vocab axis
+            ITensor probs = flatLogits.Softmax(axis: -1);
+
+            // Gather the predicted probabilities corresponding to the target class labels
+            ITensor targetProbs = probs.Gather(axis: 1, flatTargets);
+
+            // NLL loss: -log(p_target + eps)
+            ITensor nll = targetProbs.Add(1e-9f).Log().Negate();
+
+            return reduction.ToLowerInvariant() switch
+            {
+                "sum" => nll.Sum(),
+                "none" => nll.Reshape(targets.Shape.Dimensions),
+                _ => nll.Mean()
+            };
+        }
+
+        /// <summary>
+        /// Overload computing mean cross-entropy loss.
+        /// </summary>
+        public ITensor Forward(ITensor logits, ITensor targets)
+        {
+            return Forward(logits, targets, "mean");
+        }
+
+        /// <summary>
+        /// Clips global gradient norm across all model parameters to preserve recurrence stability.
+        /// </summary>
+        public static float ClipGlobalGradients(IEnumerable<ITensor> parameters, float maxNorm = 1.0f)
+        {
+            if (parameters == null) throw new ArgumentNullException(nameof(parameters));
+
+            double sumSquares = 0.0;
+            foreach (ITensor p in parameters)
+            {
+                if (p?.Grad != null)
+                {
+                    float[] gradData = p.Grad.ToArray();
+                    for (int i = 0; i < gradData.Length; i++)
+                    {
+                        float val = gradData[i];
+                        sumSquares += (double)val * val;
+                    }
+                }
+            }
+
+            float totalNorm = (float)Math.Sqrt(sumSquares);
+            if (totalNorm > maxNorm && totalNorm > 1e-8f)
+            {
+                float scale = maxNorm / totalNorm;
+                foreach (ITensor p in parameters)
+                {
+                    if (p?.Grad != null)
+                    {
+                        p.Grad.MultiplyInPlace(scale);
+                    }
+                }
+            }
+
+            return totalNorm;
+        }
+    }
+}

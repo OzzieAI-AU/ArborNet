@@ -1,0 +1,157 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+namespace ArborNet.Models
+{
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Text.Json;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
+
+    public class RecurrentDepthTransformer : BaseModel
+    {
+        private readonly int _vocabSize;
+        private readonly int _hiddenDim;
+        private readonly int _factorDim;
+        private readonly int _recurrentSteps;
+        private ITensor _tokenEmbedding;
+        private ITensor _embeddingProjection;
+        private readonly LoopedTransformerCore _core;
+
+        public int RecurrentSteps => _recurrentSteps;
+        public int HiddenDim => _hiddenDim;
+        public int VocabSize => _vocabSize;
+
+        public RecurrentDepthTransformer(int vocabSize = 32, int hiddenDim = 64, int factorDim = 8, int recurrentSteps = 8)
+        {
+            _vocabSize = vocabSize;
+            _hiddenDim = hiddenDim;
+            _factorDim = factorDim;
+            _recurrentSteps = recurrentSteps;
+
+            // Weight-tied embedding setup
+            // Vocab embedding factorized: [V x factorDim] + [factorDim x hiddenDim]
+            // Gaussian initialization N(0, 0.02^2)
+            _tokenEmbedding = Tensor.Randn(new TensorShape(vocabSize, factorDim), Device.CPU).Multiply(0.02f);
+            _tokenEmbedding.RequiresGrad = true;
+
+            _embeddingProjection = Tensor.Randn(new TensorShape(factorDim, hiddenDim), Device.CPU).Multiply(0.02f);
+            _embeddingProjection.RequiresGrad = true;
+
+            RegisterParameter(_tokenEmbedding);
+            RegisterParameter(_embeddingProjection);
+
+            // Core recurrent transformer block registered once
+            int intermediateDim = 12;
+            _core = new LoopedTransformerCore(hiddenDim, intermediateDim, recurrentSteps, maxLoops: 16);
+            foreach (var p in _core.Parameters())
+            {
+                RegisterParameter(p);
+            }
+        }
+
+        protected void RegisterParameter(ITensor parameter)
+        {
+            if (parameter != null && !parameters.Contains(parameter))
+            {
+                parameters.Add(parameter);
+            }
+        }
+
+        public override ITensor Forward(ITensor inputTokens)
+        {
+            // Factorized prelude embedding lookup via one-hot projection (autograd supported)
+            ITensor factorRep = EmbeddingLookup(_tokenEmbedding, inputTokens);
+            ITensor hidden = factorRep.MatMul(_embeddingProjection);
+
+            // Shared Core recurrence
+            ITensor contextual = _core.ForwardRecurrent(hidden, _recurrentSteps);
+
+            // Coda: tied unembedding projection
+            ITensor projectedBack = contextual.MatMul(_embeddingProjection.Transpose(new[] { 1, 0 }));
+            ITensor logits = projectedBack.MatMul(_tokenEmbedding.Transpose(new[] { 1, 0 }));
+            return logits;
+        }
+
+        private static ITensor EmbeddingLookup(ITensor embeddingTable, ITensor indices)
+        {
+            // If already a one-hot representation [N, V]
+            if (indices.Shape.Rank == 2 && indices.Shape[1] == embeddingTable.Shape[0])
+            {
+                return indices.MatMul(embeddingTable);
+            }
+
+            int numTokens = indices.Shape.TotalElements;
+            int vocabSize = embeddingTable.Shape[0];
+            float[] tokenData = indices.ToArray();
+            float[] oneHotData = new float[numTokens * vocabSize];
+
+            for (int i = 0; i < numTokens; i++)
+            {
+                int id = (int)tokenData[i];
+                if (id >= 0 && id < vocabSize)
+                {
+                    oneHotData[i * vocabSize + id] = 1.0f;
+                }
+            }
+
+            var oneHot = Tensor.FromArray(oneHotData, new TensorShape(numTokens, vocabSize), embeddingTable.Device);
+            return oneHot.MatMul(embeddingTable);
+        }
+
+        public override void To(Device targetDevice)
+        {
+            base.To(targetDevice);
+            parameters.Clear();
+            RegisterParameter(_tokenEmbedding);
+            RegisterParameter(_embeddingProjection);
+            if (_core != null)
+            {
+                foreach (var p in _core.Parameters())
+                {
+                    RegisterParameter(p);
+                }
+            }
+        }
+
+        public int ComputeTotalUniqueParameters()
+        {
+            int total = 0;
+            var visited = new HashSet<ITensor>(ReferenceEqualityComparer.Instance);
+            foreach (var param in Parameters())
+            {
+                if (param != null && visited.Add(param))
+                {
+                    total += param.Shape.TotalElements;
+                }
+            }
+            return total;
+        }
+
+        public void ExportOzm(string filePath)
+        {
+            var manifest = new
+            {
+                Format = "OZM-1.0",
+                Architecture = nameof(RecurrentDepthTransformer),
+                HiddenDim = _hiddenDim,
+                Recurrence = _recurrentSteps,
+                UniqueParameters = ComputeTotalUniqueParameters(),
+                TimestampUtc = DateTime.UtcNow.ToString("o")
+            };
+
+            string json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+    }
+}

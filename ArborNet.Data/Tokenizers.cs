@@ -1,4 +1,4 @@
-﻿// -----------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------------------
 // Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
 // 
 // Project:      ArborNet
@@ -25,6 +25,8 @@ namespace ArborNet.Data
     /// </summary>
     public interface ITokenizer
     {
+        int PadId { get; set; }
+
         /// <summary>
         /// Encodes the input text into a list of token IDs.
         /// </summary>
@@ -39,6 +41,7 @@ namespace ArborNet.Data
 
         string Decode(List<int> tokens);
     }
+
     /// <summary>
     /// Implements Byte-Pair Encoding (BPE) tokenizer.
     /// BPE iteratively merges the most frequent pairs of bytes or subwords in the vocabulary.
@@ -50,12 +53,15 @@ namespace ArborNet.Data
         private readonly Dictionary<int, string> reverseVocab; // O(1) Cache
         private readonly List<(string, string)> merges;
         private readonly string unkToken;
-        private readonly int unkId;
+
+        // ITokenizer requires mutable get/set accessors
+        public int PadId { get; set; }
+        public int UnkId { get; set; }
 
         public BpeTokenizer(string vocabFilePath, string mergesFilePath, string unkToken = "<unk>", int unkId = 0)
         {
             this.unkToken = unkToken;
-            this.unkId = unkId;
+            this.UnkId = unkId;
             vocab = LoadVocab(vocabFilePath);
             merges = LoadMerges(mergesFilePath);
             reverseVocab = vocab.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
@@ -124,7 +130,7 @@ namespace ArborNet.Data
                     }
                     else
                     {
-                        tokens.Add(unkId);
+                        tokens.Add(UnkId);
                     }
                 }
             }
@@ -195,24 +201,27 @@ namespace ArborNet.Data
             return string.Join("", subwords);
         }
     }
+
     /// <summary>
     /// Implements a simplified SentencePiece tokenizer based on Unigram model.
     /// SentencePiece tokenizes text into subwords using a pre-trained model.
     /// This implementation assumes a vocabulary file with subwords and their scores.
     /// </summary>
-
     public class SentencePieceTokenizer : ITokenizer
     {
         private readonly Dictionary<string, int> vocab;
         private readonly Dictionary<int, string> reverseVocab; // O(1) Cache
         private readonly Dictionary<string, double> scores;
         private readonly string unkToken;
-        private readonly int unkId;
+
+        // ITokenizer requires mutable get/set accessors
+        public int PadId { get; set; }
+        public int UnkId { get; set; }
 
         public SentencePieceTokenizer(string modelFilePath, string unkToken = "<unk>", int unkId = 0)
         {
             this.unkToken = unkToken;
-            this.unkId = unkId;
+            this.UnkId = unkId;
             vocab = new Dictionary<string, int>();
             scores = new Dictionary<string, double>();
             LoadModel(modelFilePath);
@@ -264,7 +273,7 @@ namespace ArborNet.Data
                 }
                 if (!found)
                 {
-                    tokens.Add(unkId);
+                    tokens.Add(UnkId);
                     i++;
                 }
             }

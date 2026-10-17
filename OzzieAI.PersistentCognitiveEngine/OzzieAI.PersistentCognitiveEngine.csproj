@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="ProgramA.cs" />
+    <Compile Remove="ProgramB.cs" />
+    <Compile Remove="ProgramC.cs" />
+    <Compile Remove="ProgramD.cs" />
+    <Compile Remove="ProgramE.cs" />
+    <Compile Remove="ProgramF.cs" />
+    <Compile Remove="ProgramG.cs" />
+    <Compile Remove="WebScout.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArborNet.Core\ArborNet.Core.csproj" />
+    <ProjectReference Include="..\ArborNet.Models\ArborNet.Models.csproj" />
+    <ProjectReference Include="..\NedK\NedK.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="OzzieAI.FaissSharp">
+      <HintPath>..\..\..\FaissSharp\OzzieAI.Faiss.Sharp\Faiss.Sharp\bin\Debug\net10.0\OzzieAI.FaissSharp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

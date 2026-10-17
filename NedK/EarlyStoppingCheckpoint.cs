@@ -1,0 +1,303 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// Project:      ArborNet Engine
+// Description:  Robust Early Stopping and Checkpoint Persistence Engine (fixed)
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+#nullable enable
+
+namespace NedK
+{
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using ArborNet.Core.Devices;
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Data;
+
+    public sealed class EarlyStoppingCheckpoint
+    {
+        private readonly int _patience;
+        private readonly float _minDelta;
+        private readonly string _checkpointPath;
+        private readonly string _ozmPath;
+        private readonly PrimeGapTokenizer _tokenizer;
+        private readonly Device _device;
+        private readonly string _corpusRoot;
+        private readonly int _minWarmupEpochs;
+        private readonly float _maxValRise;
+
+        public float BestLoss { get; private set; } = float.MaxValue;
+        public float BestAccuracy { get; private set; } = 0.0f;
+        public int BestEpoch { get; private set; } = 0;
+        public int PatienceCounter { get; private set; } = 0;
+        public bool ShouldStop { get; private set; } = false;
+
+        private List<float[]>? _bestWeightBuffer;
+
+        /// <param name="minWarmupEpochs">
+        /// Epochs before patience starts counting. Use 0 or 1 so rising val loss
+        /// is not ignored (default was 3/4 and allowed early overfit).
+        /// </param>
+        /// <param name="maxValRise">
+        /// If valLoss exceeds BestLoss by this amount after warmup, force stop.
+        /// Set 0 to disable. 0.75 catches typical overfit spikes.
+        /// </param>
+        public EarlyStoppingCheckpoint(
+            int patience,
+            float minDelta,
+            string checkpointPath,
+            string ozmPath,
+            PrimeGapTokenizer tokenizer,
+            Device device,
+            string corpusRoot = "",
+            int minWarmupEpochs = 1,
+            float maxValRise = 0.75f)
+        {
+            _patience = Math.Max(1, patience);
+            _minDelta = Math.Max(0f, minDelta);
+            _checkpointPath = checkpointPath ?? throw new ArgumentNullException(nameof(checkpointPath));
+            _ozmPath = ozmPath ?? throw new ArgumentNullException(nameof(ozmPath));
+            _tokenizer = tokenizer ?? throw new ArgumentNullException(nameof(tokenizer));
+            _device = device;
+            _corpusRoot = corpusRoot ?? "";
+            _minWarmupEpochs = Math.Max(0, minWarmupEpochs);
+            _maxValRise = Math.Max(0f, maxValRise);
+        }
+
+        /// <summary>
+        /// Call once per epoch after validation.
+        /// Returns true when this epoch is a new best (weights were checkpointed).
+        /// </summary>
+        public bool Step(
+            NedKPrimeModel model,
+            float valLoss,
+            float valAcc,
+            int epoch,
+            float? pretrainValLoss = null)
+        {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+
+            // Invalid metric — still counts against patience after warmup
+            if (float.IsNaN(valLoss) || float.IsInfinity(valLoss))
+            {
+                TickPatience(epoch);
+                return false;
+            }
+
+            // First valid epoch always establishes the baseline
+            if (_bestWeightBuffer == null)
+            {
+                AcceptBest(model, valLoss, valAcc, epoch, pretrainValLoss);
+                return true;
+            }
+
+            bool improved = (BestLoss - valLoss) > _minDelta;
+
+            if (improved)
+            {
+                AcceptBest(model, valLoss, valAcc, epoch, pretrainValLoss);
+                return true;
+            }
+
+            // No improvement
+            TickPatience(epoch);
+
+            // Emergency stop: validation exploded relative to best (overfit)
+            if (_maxValRise > 0f
+                && epoch >= Math.Max(1, _minWarmupEpochs)
+                && valLoss > BestLoss + _maxValRise)
+            {
+                ShouldStop = true;
+            }
+
+            return false;
+        }
+
+        public string? ForceExportSnapshot(NedKPrimeModel model, string trainedModelsDir, float? runningLoss = null)
+        {
+            if (model == null || string.IsNullOrWhiteSpace(trainedModelsDir)) return null;
+            try {
+                Directory.CreateDirectory(trainedModelsDir);
+                SnapshotInMemory(model);
+                try { ModelSerializer.SaveWeights(model, _checkpointPath); } catch { }
+                float lossHint = runningLoss ?? (BestLoss < float.MaxValue * 0.5f ? BestLoss : 0f);
+                var pkg = NedKOzComplete.FromModel(model, _tokenizer, _tokenizer.PadId, _tokenizer.UnkId,
+                    pretrainValLoss: lossHint > 0 ? lossHint : null, posttrainValLoss: null,
+                    corpusRoot: _corpusRoot, defaultLoops: NedKConfig.DefaultInferenceLoops);
+                var stamped = Path.Combine(trainedModelsDir, "NedK_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss") + ".ozm");
+                NedKOzComplete.Save(stamped, pkg, writeVocabSidecar: true);
+                try { NedKOzComplete.Save(_ozmPath, pkg, writeVocabSidecar: true); } catch { }
+                return stamped;
+            } catch (Exception ex) {
+                try { Console.Error.WriteLine("[NEDK] ForceExportSnapshot failed: " + ex.Message); } catch { }
+                return null;
+            }
+        }
+
+        public void RestoreBestWeights(NedKPrimeModel model)
+        {
+            if (model == null) return;
+
+            if (_bestWeightBuffer != null)
+            {
+                var liveParams = DistinctParams(model).ToList();
+                if (liveParams.Count == _bestWeightBuffer.Count)
+                {
+                    for (int i = 0; i < liveParams.Count; i++)
+                        CopyInto(liveParams[i], _bestWeightBuffer[i]);
+                    return;
+                }
+            }
+
+            // Disk fallback
+            if (File.Exists(_checkpointPath))
+            {
+                try { ModelSerializer.LoadWeights(model, _checkpointPath); }
+                catch { /* leave current weights */ }
+            }
+        }
+
+        private void AcceptBest(
+            NedKPrimeModel model,
+            float valLoss,
+            float valAcc,
+            int epoch,
+            float? pretrainValLoss)
+        {
+            BestLoss = valLoss;
+            BestAccuracy = valAcc;
+            BestEpoch = epoch;
+            PatienceCounter = 0;
+            ShouldStop = false;
+
+            SnapshotInMemory(model);
+
+            try
+            {
+                ModelSerializer.SaveWeights(model, _checkpointPath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[EarlyStop] bin save failed: " + ex.Message);
+            }
+
+            try
+            {
+                var pkg = NedKOzComplete.FromModel(
+                    model: model,
+                    tokenizer: _tokenizer,
+                    padId: _tokenizer.PadId,
+                    unkId: _tokenizer.UnkId,
+                    pretrainValLoss: pretrainValLoss ?? (BestLoss < float.MaxValue * 0.5f ? BestLoss : null),
+                    posttrainValLoss: pretrainValLoss.HasValue ? BestLoss : null,
+                    corpusRoot: _corpusRoot,
+                    defaultLoops: NedKConfig.DefaultInferenceLoops);
+
+                NedKOzComplete.Save(_ozmPath, pkg, writeVocabSidecar: true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[EarlyStop] OZM save failed: " + ex.Message);
+            }
+        }
+
+        private void TickPatience(int epoch)
+        {
+            // Do not count patience during optional warmup epochs
+            if (epoch < _minWarmupEpochs)
+                return;
+
+            PatienceCounter++;
+            if (PatienceCounter >= _patience)
+                ShouldStop = true;
+        }
+
+        private void SnapshotInMemory(NedKPrimeModel model)
+        {
+            var liveParams = DistinctParams(model).ToList();
+            _bestWeightBuffer = new List<float[]>(liveParams.Count);
+            foreach (var p in liveParams)
+                _bestWeightBuffer.Add(p.ToArray());
+        }
+
+        private static List<ITensor> DistinctParams(BaseModel model)
+        {
+            var seen = new HashSet<ITensor>(ReferenceEqualityComparer.Instance);
+            var list = new List<ITensor>();
+            foreach (var p in model.Parameters())
+            {
+                if (p != null && seen.Add(p))
+                    list.Add(p);
+            }
+            return list;
+        }
+
+        private static void CopyInto(ITensor target, float[] source)
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            if (source == null) throw new ArgumentNullException(nameof(source));
+
+            // Fast-path: ITensor natively implements SetData(float[]) in ArborNet!
+            try
+            {
+                target.SetData(source);
+                return;
+            }
+            catch
+            {
+                // Fallback to reflection if custom tensor wrapper is used
+            }
+
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance;
+
+            var method = target.GetType().GetMethod("CopyFrom", flags)
+                      ?? target.GetType().GetMethod("SetData", flags);
+            if (method != null && method.GetParameters().Length == 1)
+            {
+                method.Invoke(target, new object[] { source });
+                return;
+            }
+
+            var prop = target.GetType().GetProperty("Data", flags);
+            if (prop != null && prop.CanWrite && prop.PropertyType == typeof(float[]))
+            {
+                prop.SetValue(target, (float[])source.Clone());
+                return;
+            }
+
+            var field = target.GetType().GetField("_data", flags);
+            if (field != null && field.FieldType == typeof(float[]))
+            {
+                field.SetValue(target, (float[])source.Clone());
+                return;
+            }
+
+            foreach (string fname in new[] { "data", "_values", "values", "_buffer" })
+            {
+                var f = target.GetType().GetField(fname, flags);
+                if (f != null && f.FieldType == typeof(float[]))
+                {
+                    f.SetValue(target, (float[])source.Clone());
+                    return;
+                }
+            }
+
+            var setAt = target.GetType().GetMethod("Set", new[] { typeof(int), typeof(float) });
+            if (setAt != null)
+            {
+                for (int j = 0; j < source.Length; j++)
+                    setAt.Invoke(target, new object[] { j, source[j] });
+                return;
+            }
+
+            throw new NotSupportedException(
+                $"Cannot restore weights into tensor type {target.GetType().FullName}.");
+        }
+    }
+}

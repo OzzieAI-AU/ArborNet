@@ -1,0 +1,55 @@
+// -----------------------------------------------------------------------------------------
+// Copyright © 2026 OzzieAI - Chris Sykes. All rights reserved.
+// 
+// Project:      ArborNet
+// Description:  A C# Machine Learning Library implemented in .NET 10 with full CUDA support.
+// 
+// License:      MIT License
+// -----------------------------------------------------------------------------------------
+
+namespace ArborNet.Models
+{
+
+
+    using ArborNet.Core.Interfaces;
+    using ArborNet.Core.Models;
+    using ArborNet.Core.Tensors;
+    using ArborNet.Layers;
+    using System.Collections.Generic;
+
+
+    public sealed class RecurrentDepthTransformer : BaseModel
+    {
+        public Embedding Embed { get; }
+        public IReadOnlyList<TransformerBlock> Prelude { get; }
+        public LoopedTransformerCore Core { get; }
+        public IReadOnlyList<TransformerBlock> Coda { get; }
+        public LayerNorm FinalNorm { get; }
+        public Linear LmHead { get; }
+
+        private ITensor Forward(ITensor tokens, int nLoops = 4)
+        {
+            var x = Embed.Forward(tokens);
+            foreach (var b in Prelude) x = b.Forward(x);
+            x = Core.Forward(x, nLoops);
+            foreach (var b in Coda) x = b.Forward(x);
+            x = FinalNorm.Forward(x);
+            return LmHead.Forward(x);
+        }
+
+        public override ITensor Forward(ITensor input)
+        {
+            return Forward(input, nLoops: 4);
+        }
+
+        public override IEnumerable<ITensor> Parameters()
+        {
+            foreach (var p in Embed.Parameters()) yield return p;
+            foreach (var b in Prelude) foreach (var p in b.Parameters()) yield return p;
+            foreach (var p in Core.Parameters()) yield return p;
+            foreach (var b in Coda) foreach (var p in b.Parameters()) yield return p;
+            foreach (var p in FinalNorm.Parameters()) yield return p;
+            foreach (var p in LmHead.Parameters()) yield return p;
+        }
+    }
+}

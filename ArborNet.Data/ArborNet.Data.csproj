@@ -19,6 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="PrimeGapTokenizer.cs" />
+    <Compile Include="OzModelCodec.cs" />
     <Compile Include="Tokenizers.cs" />
     <Compile Include="Transforms.cs" />
     <Compile Include="Datasets\CIFAR10\Download.cs" />
@@ -32,7 +34,199 @@
 
   <ItemGroup>
     <PackageReference Include="SharpCompress" Version="0.49.1" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ADAUSDT\ADAUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BNBUSDT\BNBUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\BTCUSDT\BTCUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\DOGEUSDT\DOGEUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\ETHUSDT\ETHUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\SOLUSDT\SOLUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_Day.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_FifteenMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_FiveMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_OneHundredTwentyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_SixtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_ThirtyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_ThreeDays.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_TwoHundredFortyMinutes.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Datasets\Crypto\XRPUSDT\XRPUSDT_Week.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,215 @@
+using System;
+
+namespace ArborNet.Layers
+{
+    public sealed class GeometricEmbeddingSlice
+    {
+        public const double Eps = 1e-6;
+
+        private readonly int _dim;
+        private readonly double _c;
+        private readonly double _sqrtC;
+        private readonly double[] _originBias;
+
+        public GeometricEmbeddingSlice(int dim, double curvature = 1.0)
+        {
+            if (dim < 1)
+                throw new ArgumentOutOfRangeException(nameof(dim));
+            if (curvature < Eps)
+                throw new ArgumentOutOfRangeException(nameof(curvature));
+            _dim = dim;
+            _c = curvature;
+            _sqrtC = Math.Sqrt(curvature);
+            _originBias = new double[dim];
+        }
+
+        public int Dimension => _dim;
+        public double Curvature => _c;
+
+        public void SetOriginBias(double[] bias)
+        {
+            if (bias == null || bias.Length != _dim)
+                throw new ArgumentException("Bias rank must equal dimension.", nameof(bias));
+            Array.Copy(bias, _originBias, _dim);
+        }
+
+        public double[] Encode(double[] euclidean)
+        {
+            var tangent = Add(euclidean, _originBias);
+            return Exp0(tangent);
+        }
+
+        public double[] Exp0(double[] v)
+        {
+            Require(v, nameof(v));
+            double norm = Norm(v);
+            var y = new double[_dim];
+            if (norm < Eps)
+                return y;
+            double scale = Math.Tanh(_sqrtC * norm) / (_sqrtC * norm);
+            for (int i = 0; i < _dim; i++)
+                y[i] = v[i] * scale;
+            return Project(y);
+        }
+
+        public double[] Log0(double[] y)
+        {
+            y = Project(y);
+            double norm = Norm(y);
+            var v = new double[_dim];
+            if (norm < Eps)
+                return v;
+            double t = Clamp(_sqrtC * norm, 0.0, 1.0 - Eps);
+            double scale = Atanh(t) / (_sqrtC * norm);
+            for (int i = 0; i < _dim; i++)
+                v[i] = y[i] * scale;
+            return v;
+        }
+
+        public double[] Project(double[] x)
+        {
+            Require(x, nameof(x));
+            double maxNorm = (1.0 - Eps) / _sqrtC;
+            double norm = Norm(x);
+            var y = new double[_dim];
+            if (norm <= maxNorm || norm < Eps)
+            {
+                Array.Copy(x, y, _dim);
+                return y;
+            }
+            double scale = maxNorm / norm;
+            for (int i = 0; i < _dim; i++)
+                y[i] = x[i] * scale;
+            return y;
+        }
+
+        public double[] MobiusAdd(double[] x, double[] y)
+        {
+            x = Project(x);
+            y = Project(y);
+            double x2 = Dot(x, x);
+            double y2 = Dot(y, y);
+            double xy = Dot(x, y);
+            double denom = 1.0 + 2.0 * _c * xy + _c * _c * x2 * y2;
+            if (Math.Abs(denom) < Eps)
+                denom = denom < 0.0 ? -Eps : Eps;
+            double a = (1.0 + 2.0 * _c * xy + _c * y2) / denom;
+            double b = (1.0 - _c * x2) / denom;
+            var z = new double[_dim];
+            for (int i = 0; i < _dim; i++)
+                z[i] = a * x[i] + b * y[i];
+            return Project(z);
+        }
+
+        public double Distance(double[] u, double[] v)
+        {
+            u = Project(u);
+            v = Project(v);
+            double diff2 = 0.0;
+            for (int i = 0; i < _dim; i++)
+            {
+                double d = u[i] - v[i];
+                diff2 += d * d;
+            }
+            double denom = (1.0 - _c * Dot(u, u)) * (1.0 - _c * Dot(v, v));
+            if (denom < Eps)
+                denom = Eps;
+            double z = 1.0 + 2.0 * _c * diff2 / denom;
+            if (z < 1.0)
+                z = 1.0;
+            return Acosh(z) / _sqrtC;
+        }
+
+        public double ConformalFactor(double[] x)
+        {
+            x = Project(x);
+            return 2.0 / Math.Max(Eps, 1.0 - _c * Dot(x, x));
+        }
+
+        public double[] ScaleRiemannianGradient(double[] point, double[] euclideanGrad)
+        {
+            Require(euclideanGrad, nameof(euclideanGrad));
+            double lambda = ConformalFactor(point);
+            double inv = 1.0 / (lambda * lambda);
+            var g = new double[_dim];
+            for (int i = 0; i < _dim; i++)
+                g[i] = euclideanGrad[i] * inv;
+            return g;
+        }
+
+        public double[][] EncodeBatch(double[][] rows)
+        {
+            if (rows == null)
+                throw new ArgumentNullException(nameof(rows));
+            var encoded = new double[rows.Length][];
+            for (int i = 0; i < rows.Length; i++)
+                encoded[i] = Encode(rows[i]);
+            return encoded;
+        }
+
+        public double MeanPairwiseDistance(double[][] points)
+        {
+            if (points == null || points.Length < 2)
+                return 0.0;
+            double sum = 0.0;
+            int count = 0;
+            for (int i = 0; i < points.Length; i++)
+            {
+                for (int j = i + 1; j < points.Length; j++)
+                {
+                    sum += Distance(points[i], points[j]);
+                    count++;
+                }
+            }
+            return count == 0 ? 0.0 : sum / count;
+        }
+
+        private double[] Add(double[] a, double[] b)
+        {
+            Require(a, nameof(a));
+            var y = new double[_dim];
+            for (int i = 0; i < _dim; i++)
+                y[i] = a[i] + b[i];
+            return y;
+        }
+
+        private void Require(double[] v, string name)
+        {
+            if (v == null || v.Length != _dim)
+                throw new ArgumentException("Vector length must equal dimension.", name);
+        }
+
+        private static double Dot(double[] a, double[] b)
+        {
+            double s = 0.0;
+            for (int i = 0; i < a.Length; i++)
+                s += a[i] * b[i];
+            return s;
+        }
+
+        private static double Norm(double[] a)
+        {
+            return Math.Sqrt(Math.Max(0.0, Dot(a, a)));
+        }
+
+        private static double Clamp(double x, double lo, double hi)
+        {
+            if (x < lo) return lo;
+            if (x > hi) return hi;
+            return x;
+        }
+
+        private static double Atanh(double x)
+        {
+            x = Clamp(x, -1.0 + Eps, 1.0 - Eps);
+            return 0.5 * Math.Log((1.0 + x) / (1.0 - x));
+        }
+
+        private static double Acosh(double x)
+        {
+            if (x < 1.0)
+                x = 1.0;
+            return Math.Log(x + Math.Sqrt(Math.Max(0.0, x * x - 1.0)));
+        }
+    }
+}

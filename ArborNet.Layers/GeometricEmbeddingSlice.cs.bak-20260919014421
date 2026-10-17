@@ -1,0 +1,198 @@
+using System;
+
+namespace ArborNet.Layers
+{
+    /// <summary>
+    /// HyperbolicEmbedMicro: Lorentz and Poincaré metric encoder for geometric and symbolic structures
+    /// (e.g. tree hierarchies, IFS attractor coordinates, and prime-gap sequence embeddings).
+    /// Computes bi-Lipschitz metric distortion against graph/tree geodesic ground truths.
+    /// </summary>
+    public sealed class GeometricEmbeddingSlice
+    {
+        private readonly int _spatialDim;
+        private readonly int _ambientDim;
+        private readonly float _curvature;
+        private readonly float[] _embeddingWeights;
+        private readonly int _vocabSize;
+
+        public int SpatialDimension => _spatialDim;
+        public int AmbientDimension => _ambientDim;
+        public float Curvature => _curvature;
+
+        public GeometricEmbeddingSlice(int vocabSize, int spatialDimension, float curvature = 1.0f, int seed = 42)
+        {
+            if (vocabSize <= 0) throw new ArgumentOutOfRangeException(nameof(vocabSize));
+            if (spatialDimension <= 0) throw new ArgumentOutOfRangeException(nameof(spatialDimension));
+            if (curvature <= 0f) throw new ArgumentOutOfRangeException(nameof(curvature));
+
+            _vocabSize = vocabSize;
+            _spatialDim = spatialDimension;
+            _ambientDim = spatialDimension + 1;
+            _curvature = curvature;
+            _embeddingWeights = new float[_vocabSize * _spatialDim];
+
+            InitializeWeights(seed);
+        }
+
+        private void InitializeWeights(int seed)
+        {
+            var rng = new Random(seed);
+            float scale = 0.05f / (float)Math.Sqrt(_spatialDim);
+            for (int i = 0; i < _embeddingWeights.Length; i++)
+            {
+                float u1 = 1.0f - (float)rng.NextDouble();
+                float u2 = 1.0f - (float)rng.NextDouble();
+                float normal = (float)(Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2));
+                _embeddingWeights[i] = normal * scale;
+            }
+        }
+
+        /// <summary>
+        /// Projects a spatial tangent vector v in R^d onto the forward Lorentz hyperboloid H^d_{c} in R^{d+1}.
+        /// </summary>
+        public void ProjectTangentToLorentz(ReadOnlySpan<float> spatial, Span<float> lorentzOut)
+        {
+            if (spatial.Length != _spatialDim)
+                throw new ArgumentException("Spatial dimension mismatch.", nameof(spatial));
+            if (lorentzOut.Length != _ambientDim)
+                throw new ArgumentException("Lorentz output buffer dimension mismatch.", nameof(lorentzOut));
+
+            float sqNorm = 0f;
+            for (int i = 0; i < _spatialDim; i++)
+            {
+                sqNorm += spatial[i] * spatial[i];
+            }
+
+            // x_0 = sqrt(1/c + sum(x_i^2))
+            float x0 = (float)Math.Sqrt((1.0f / _curvature) + sqNorm);
+            lorentzOut[0] = x0;
+            for (int i = 0; i < _spatialDim; i++)
+            {
+                lorentzOut[i + 1] = spatial[i];
+            }
+        }
+
+        /// <summary>
+        /// Minkowski inner product: &lt;u, v&gt;_L = -u_0 * v_0 + \sum_{i=1}^d u_i * v_i
+        /// </summary>
+        public static float MinkowskiInnerProduct(ReadOnlySpan<float> u, ReadOnlySpan<float> v)
+        {
+            if (u.Length != v.Length)
+                throw new ArgumentException("Vector dimensions must match.");
+
+            float prod = -u[0] * v[0];
+            for (int i = 1; i < u.Length; i++)
+            {
+                prod += u[i] * v[i];
+            }
+            return prod;
+        }
+
+        /// <summary>
+        /// Geodesic distance in Lorentz space H^d_c: d_L(u, v) = (1 / sqrt(c)) * arcosh(-c * &lt;u, v&gt;_L)
+        /// </summary>
+        public float LorentzDistance(ReadOnlySpan<float> u, ReadOnlySpan<float> v)
+        {
+            float inner = MinkowskiInnerProduct(u, v);
+            float arg = -_curvature * inner;
+            if (arg < 1.0f) arg = 1.0f; // numerical clamp
+            float arcosh = (float)Math.Log(arg + Math.Sqrt(Math.Max(0f, arg * arg - 1.0f)));
+            return arcosh / (float)Math.Sqrt(_curvature);
+        }
+
+        /// <summary>
+        /// Poincaré ball distance from two vectors x, y in B^d with ||x|| &lt; 1, ||y|| &lt; 1.
+        /// </summary>
+        public static float PoincareDistance(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
+        {
+            if (x.Length != y.Length)
+                throw new ArgumentException("Vector dimensions must match.");
+
+            float diffNormSq = 0f;
+            float xNormSq = 0f;
+            float yNormSq = 0f;
+
+            for (int i = 0; i < x.Length; i++)
+            {
+                float diff = x[i] - y[i];
+                diffNormSq += diff * diff;
+                xNormSq += x[i] * x[i];
+                yNormSq += y[i] * y[i];
+            }
+
+            const float eps = 1e-6f;
+            float denom = (1.0f - Math.Min(xNormSq, 1.0f - eps)) * (1.0f - Math.Min(yNormSq, 1.0f - eps));
+            if (denom < eps) denom = eps;
+
+            float delta = 1.0f + 2.0f * diffNormSq / denom;
+            if (delta < 1.0f) delta = 1.0f;
+            return (float)Math.Log(delta + Math.Sqrt(Math.Max(0f, delta * delta - 1.0f)));
+        }
+
+        /// <summary>
+        /// Encodes a symbolic node with an optional continuous IFS/coordinate feature into the Lorentz space.
+        /// </summary>
+        public void EmbedSymbolicNode(int tokenId, ReadOnlySpan<float> continuousFeat, Span<float> lorentzOut)
+        {
+            if ((uint)tokenId >= (uint)_vocabSize)
+                throw new ArgumentOutOfRangeException(nameof(tokenId));
+
+            Span<float> spatial = stackalloc float[_spatialDim];
+            int offset = tokenId * _spatialDim;
+
+            for (int i = 0; i < _spatialDim; i++)
+            {
+                float val = _embeddingWeights[offset + i];
+                if (continuousFeat.Length > i)
+                {
+                    val += continuousFeat[i];
+                }
+                spatial[i] = val;
+            }
+
+            ProjectTangentToLorentz(spatial, lorentzOut);
+        }
+
+        /// <summary>
+        /// Computes the bi-Lipschitz distortion scorecard over pairwise metric graphs:
+        /// Distortion = s_max / s_min, where s_ij = d_embed(i, j) / d_graph(i, j).
+        /// </summary>
+        public (float MaxStretch, float MinStretch, float Distortion, float MeanRelativeError) EvaluateMetricDistortion(
+            float[][] lorentzEmbeddings,
+            float[,] targetDistances)
+        {
+            int n = lorentzEmbeddings.Length;
+            if (targetDistances.GetLength(0) != n || targetDistances.GetLength(1) != n)
+                throw new ArgumentException("Dimension mismatch between embeddings and target matrix.");
+
+            float maxStretch = float.MinValue;
+            float minStretch = float.MaxValue;
+            double totalError = 0.0;
+            int count = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = i + 1; j < n; j++)
+                {
+                    float dTarget = targetDistances[i, j];
+                    if (dTarget <= 1e-6f) continue;
+
+                    float dEmbed = LorentzDistance(lorentzEmbeddings[i], lorentzEmbeddings[j]);
+                    float stretch = dEmbed / dTarget;
+
+                    if (stretch > maxStretch) maxStretch = stretch;
+                    if (stretch < minStretch) minStretch = stretch;
+
+                    totalError += Math.Abs(dEmbed - dTarget) / dTarget;
+                    count++;
+                }
+            }
+
+            if (count == 0) return (1f, 1f, 1f, 0f);
+
+            float distortion = minStretch > 1e-6f ? (maxStretch / minStretch) : float.PositiveInfinity;
+            float mre = (float)(totalError / count);
+            return (maxStretch, minStretch, distortion, mre);
+        }
+    }
+}
