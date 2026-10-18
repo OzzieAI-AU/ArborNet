@@ -26,5 +26,6 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="kernel.cu" />
+    <CudaCompile Include="cuda_backend.cu" />
   </ItemGroup>
 </Project>

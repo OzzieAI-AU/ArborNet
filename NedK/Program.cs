@@ -319,6 +319,28 @@ namespace NedK
                     record.SearchableText = rawText.Replace("\n", " ").Trim();
                     record.AnswerPayload = FormatCleanPayload(rawText);
                 }
+                //else if (root.TryGetProperty("messages", out var msgsProp) && msgsProp.ValueKind == JsonValueKind.Array)
+                //{
+                //    record.Kind = "sft";
+                //    string userMsg = "", assistantMsg = "";
+                //    foreach (var m in msgsProp.EnumerateArray())
+                //    {
+                //        string role = m.TryGetProperty("role", out var r) ? r.GetString() ?? "" : "";
+                //        string content = m.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+                //        if (role == "user") userMsg = content;
+                //        else if (role == "assistant") assistantMsg = content;
+                //    }
+                //    record.SearchableText = $"{record.Topic} {userMsg} {assistantMsg}".Replace("\\n", " ").Replace("\n", " ").Trim();
+                //    record.AnswerPayload = FormatCleanPayload(string.IsNullOrEmpty(assistantMsg) ? userMsg : $"Q: {userMsg}\nA: {assistantMsg}");
+                //}
+                //else if (root.TryGetProperty("prompt", out var promptProp))
+                //{
+                //    string prompt = promptProp.GetString() ?? "";
+                //    string answer = root.TryGetProperty("completion", out var compProp) ? compProp.GetString() ?? "" : "";
+                //    record.Kind = "sft";
+                //    record.SearchableText = $"{record.Topic} {prompt} {answer}".Replace("\\n", " ").Replace("\n", " ").Trim();
+                //    record.AnswerPayload = FormatCleanPayload(string.IsNullOrEmpty(answer) ? prompt : $"Q: {prompt}\nA: {answer}");
+                //}
                 else if (root.TryGetProperty("messages", out var msgsProp) && msgsProp.ValueKind == JsonValueKind.Array)
                 {
                     record.Kind = "sft";
@@ -331,7 +353,8 @@ namespace NedK
                         else if (role == "assistant") assistantMsg = content;
                     }
                     record.SearchableText = $"{record.Topic} {userMsg} {assistantMsg}".Replace("\\n", " ").Replace("\n", " ").Trim();
-                    record.AnswerPayload = FormatCleanPayload(string.IsNullOrEmpty(assistantMsg) ? userMsg : $"Q: {userMsg}\nA: {assistantMsg}");
+                    // Keep the actual Assistant answer so the 500-char user prompt doesn't push it off the cliff!
+                    record.AnswerPayload = FormatCleanPayload(!string.IsNullOrWhiteSpace(assistantMsg) ? assistantMsg : userMsg);
                 }
                 else if (root.TryGetProperty("prompt", out var promptProp))
                 {
@@ -339,7 +362,8 @@ namespace NedK
                     string answer = root.TryGetProperty("completion", out var compProp) ? compProp.GetString() ?? "" : "";
                     record.Kind = "sft";
                     record.SearchableText = $"{record.Topic} {prompt} {answer}".Replace("\\n", " ").Replace("\n", " ").Trim();
-                    record.AnswerPayload = FormatCleanPayload(string.IsNullOrEmpty(answer) ? prompt : $"Q: {prompt}\nA: {answer}");
+                    // Prioritize the completion answer over the long system prompt!
+                    record.AnswerPayload = FormatCleanPayload(!string.IsNullOrWhiteSpace(answer) ? answer : prompt);
                 }
             }
             catch
@@ -897,16 +921,25 @@ namespace NedK
                 Console.WriteLine($"[NCST Sheaf Cohomology] Obstruction H^1: {obstructionMetric:F3} (Wave: {spectralWave:F3}) -> Topos Equilibrium Stable (Lambda: {_connesMarcolliLambda:F3})");
             }
 
+            //// 3. Context-Window Safe RAG + TIR Prompt Injection for NedK Generation
+            //string contextSnippet = primaryRec.AnswerPayload
+            //    .Replace("Q:", "")
+            //    .Replace("A:", "")
+            //    .Replace("\n", " ")
+            //    .Trim();
+            //if (contextSnippet.Length > 180) contextSnippet = contextSnippet.Substring(0, 180);
+
+            //string tirPrefix = matchedIsolobal != null ? $"{matchedIsolobal.ConservationRule} " : "";
+            //string groundedPrompt = $"{primaryRec.Topic} {cleanPrompt} {tirPrefix}{contextSnippet}".Trim();
             // 3. Context-Window Safe RAG + TIR Prompt Injection for NedK Generation
             string contextSnippet = primaryRec.AnswerPayload
-                .Replace("Q:", "")
-                .Replace("A:", "")
                 .Replace("\n", " ")
                 .Trim();
-            if (contextSnippet.Length > 180) contextSnippet = contextSnippet.Substring(0, 180);
+            if (contextSnippet.Length > 140) contextSnippet = contextSnippet.Substring(0, 140);
 
             string tirPrefix = matchedIsolobal != null ? $"{matchedIsolobal.ConservationRule} " : "";
-            string groundedPrompt = $"{primaryRec.Topic} {cleanPrompt} {tirPrefix}{contextSnippet}".Trim();
+            // Place cleanPrompt and the start of the answer at the END of the 64-token window!
+            string groundedPrompt = $"{tirPrefix}{cleanPrompt} {contextSnippet}".Trim();
 
             Console.WriteLine($"[NedK Autoregressive Generation]:");
             //var inferReq = new OzLocalInferRequest
@@ -967,10 +1000,15 @@ namespace NedK
 
         private static ProviderConfig omegaConfig = new()
         {
-            ProviderName = "Google Gemini",
-            ApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "",
-            EndpointUrl = "https://generativelanguage.googleapis.com/v1beta",
-            SelectedModel = "gemini-3.8-flash",
+            //ProviderName = "Google Gemini",
+            //ApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "",
+            //EndpointUrl = "https://generativelanguage.googleapis.com/v1beta",
+            //SelectedModel = "gemini-3.8-flash",
+            //IsEnabled = true
+
+            ProviderName = "Ollama",
+            EndpointUrl = "http://localhost:11434/api",
+            SelectedModel = "gemma4:e2b",
             IsEnabled = true
         };
 

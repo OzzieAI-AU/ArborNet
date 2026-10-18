@@ -160,6 +160,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="cuda_backend.cu" />
     <CudaCompile Include="kernel.cu">
       <FileType>Document</FileType>
     </CudaCompile>
